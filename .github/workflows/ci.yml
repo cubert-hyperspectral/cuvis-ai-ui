@@ -15,9 +15,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  UV_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-
 jobs:
   test:
     name: Run tests with coverage
