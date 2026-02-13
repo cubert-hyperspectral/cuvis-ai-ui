@@ -4,7 +4,7 @@
 #define MyAppName "Cuvis.AI UI"
 #define MyAppExeName "cuvis-ui.exe"
 #define MyAppPublisher "Cubert GmbH"
-#define MyAppURL "https://gitlab.cubert.local/cubert/cuvis-ai-ui"
+#define MyAppURL "https://github.com/cubert-hyperspectral/cuvis-ai-ui"
 
 ; Version is injected by build.bat via /D flag, defaults to "0.0.0"
 #ifndef MyAppVersion

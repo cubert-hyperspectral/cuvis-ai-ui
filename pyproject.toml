@@ -10,8 +10,21 @@ authors = [
     {name = "Cubert GmbH", email = "cuvis.ai@cubert-gmbh.com"}
 ]
 readme = "README.md"
-license = { text = "Apache License 2.0" }
+license = "Apache-2.0"
 requires-python = ">=3.11,<3.12"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Environment :: X11 Applications :: Qt",
+    "Typing :: Typed",
+    "Operating System :: Microsoft :: Windows",
+]
 
 dependencies = [
     # Node graph visualization
@@ -34,12 +47,19 @@ dev = [
     "pytest>=7.0.0",
     "pytest-qt>=4.0.0",
     "pytest-cov>=4.0.0",
-    "grpcio-tools>=1.56.0",  # For proto stub generation
+    "grpcio-tools>=1.56.0",
     "ruff>=0.14.11",
     "ipdb>=0.13.13",
     "mypy>=1.8.0",
     "pyinstaller>=6.0.0",
     "Pillow>=10.0.0",
+    # Security and packaging tools
+    "twine>=6.2.0",
+    "pip-audit>=2.7.0",
+    "bandit[toml]>=1.7.0",
+    "detect-secrets>=1.4.0",
+    "pip-licenses>=4.0.0",
+    "cyclonedx-bom>=4.0.0",
 ]
 
 viz = [
@@ -49,8 +69,10 @@ viz = [
 ]
 
 [project.urls]
-Homepage = "https://gitlab.cubert.local/cubert/cuvis-ai-ui"
-Repository = "https://gitlab.cubert.local/cubert/cuvis-ai-ui.git"
+Homepage = "https://www.cubert-hyperspectral.com/"
+Repository = "https://github.com/cubert-hyperspectral/cuvis-ai-ui"
+Issues = "https://github.com/cubert-hyperspectral/cuvis-ai-ui/issues"
+Changelog = "https://github.com/cubert-hyperspectral/cuvis-ai-ui/blob/main/CHANGELOG.md"
 
 [project.scripts]
 cuvis-ui = "cuvis_ai_ui.main:main"
@@ -117,3 +139,7 @@ show_missing = true
 
 [tool.coverage.html]
 directory = "htmlcov"
+
+[tool.bandit]
+exclude_dirs = ["tests", "cuvis_ai_ui/grpc"]
+skips = ["B101"]
