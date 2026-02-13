@@ -1,8 +1,7 @@
 """Integration tests for MainWindow (converted from manual tests)."""
 
 import pytest
-from unittest.mock import Mock, patch
-from PySide6.QtWidgets import QFileDialog
+from unittest.mock import patch
 
 from cuvis_ai_ui.main_window import MainWindow
 
@@ -33,7 +32,7 @@ def test_open_pipeline_with_empty_string(qapp):
         pytest.fail(f"open_pipeline('') raised exception: {e}")
 
 
-@patch('cuvis_ai_ui.main_window.QFileDialog.getOpenFileName')
+@patch("cuvis_ai_ui.main_window.QFileDialog.getOpenFileName")
 def test_open_pipeline_with_none_user_cancels(mock_dialog, qapp, tmp_path):
     """Test file dialog cancellation (from test_file_dialog_fix.py)."""
     window = MainWindow()
@@ -49,7 +48,7 @@ def test_open_pipeline_with_none_user_cancels(mock_dialog, qapp, tmp_path):
         pytest.fail(f"open_pipeline(None) with cancel raised exception: {e}")
 
 
-@patch('cuvis_ai_ui.main_window.QFileDialog.getOpenFileName')
+@patch("cuvis_ai_ui.main_window.QFileDialog.getOpenFileName")
 def test_open_pipeline_with_valid_file(mock_dialog, qapp, temp_pipeline_file):
     """Test opening a valid pipeline file (from test_file_dialog_fix.py)."""
     window = MainWindow()
@@ -61,7 +60,7 @@ def test_open_pipeline_with_valid_file(mock_dialog, qapp, temp_pipeline_file):
         window.open_pipeline(None)
         # Test passes if no exception (file may not load due to missing nodes)
         assert True
-    except Exception as e:
+    except Exception:
         # It's OK if the file fails to load due to missing nodes
         # We're just testing the file dialog doesn't crash
         pass

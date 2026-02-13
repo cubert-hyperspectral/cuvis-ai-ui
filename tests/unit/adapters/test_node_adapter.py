@@ -1,7 +1,6 @@
 """Tests for node adapter and node registry."""
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 from cuvis_ai_ui.adapters.node_adapter import (
     CuvisNodeAdapter,

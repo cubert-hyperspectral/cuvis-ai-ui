@@ -29,7 +29,7 @@ Visual pipeline editor for [cuvis-ai](https://github.com/cubert-hyperspectral/cu
 ```bash
 git clone https://github.com/cubert-hyperspectral/cuvis-ai-ui.git
 cd cuvis-ai-ui
-uv sync
+uv sync --all-exrtas
 ```
 
 Start the [cuvis-ai-core](https://github.com/cubert-hyperspectral/cuvis-ai-core) gRPC server (in a separate terminal):

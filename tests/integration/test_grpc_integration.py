@@ -8,7 +8,7 @@ Refactored to use pytest fixtures and mocking for reliable, repeatable tests.
 """
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from cuvis_ai_ui.grpc.client import CuvisAIClient
 
@@ -28,7 +28,7 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input hyperspectral cube"
+                    "description": "Input hyperspectral cube",
                 }
             ],
             "output_specs": [
@@ -37,9 +37,9 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Normalized cube"
+                    "description": "Normalized cube",
                 }
-            ]
+            ],
         },
         {
             "class_name": "SupervisedFullSpectrumBandSelector",
@@ -52,15 +52,15 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input cube"
+                    "description": "Input cube",
                 },
                 {
                     "name": "labels",
                     "dtype": "int64",
                     "shape": "[-1]",
                     "optional": False,
-                    "description": "Training labels"
-                }
+                    "description": "Training labels",
+                },
             ],
             "output_specs": [
                 {
@@ -68,9 +68,9 @@ def mock_grpc_server():
                     "dtype": "int64",
                     "shape": "[-1]",
                     "optional": False,
-                    "description": "Selected band indices"
+                    "description": "Selected band indices",
                 }
-            ]
+            ],
         },
         {
             "class_name": "SupervisedCIRBandSelector",
@@ -83,15 +83,15 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input cube"
+                    "description": "Input cube",
                 },
                 {
                     "name": "labels",
                     "dtype": "int64",
                     "shape": "[-1]",
                     "optional": False,
-                    "description": "Training labels"
-                }
+                    "description": "Training labels",
+                },
             ],
             "output_specs": [
                 {
@@ -99,9 +99,9 @@ def mock_grpc_server():
                     "dtype": "int64",
                     "shape": "[3]",
                     "optional": False,
-                    "description": "CIR band indices (NIR, Red, Green)"
+                    "description": "CIR band indices (NIR, Red, Green)",
                 }
-            ]
+            ],
         },
         {
             "class_name": "SupervisedWindowedFalseRGBSelector",
@@ -114,15 +114,15 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input cube"
+                    "description": "Input cube",
                 },
                 {
                     "name": "labels",
                     "dtype": "int64",
                     "shape": "[-1]",
                     "optional": False,
-                    "description": "Training labels"
-                }
+                    "description": "Training labels",
+                },
             ],
             "output_specs": [
                 {
@@ -130,9 +130,9 @@ def mock_grpc_server():
                     "dtype": "int64",
                     "shape": "[3]",
                     "optional": False,
-                    "description": "False RGB band indices"
+                    "description": "False RGB band indices",
                 }
-            ]
+            ],
         },
         {
             "class_name": "LearnableChannelMixer",
@@ -145,7 +145,7 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input cube"
+                    "description": "Input cube",
                 }
             ],
             "output_specs": [
@@ -154,9 +154,9 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Mixed channels"
+                    "description": "Mixed channels",
                 }
-            ]
+            ],
         },
         {
             "class_name": "TrainablePCA",
@@ -169,7 +169,7 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input cube"
+                    "description": "Input cube",
                 }
             ],
             "output_specs": [
@@ -178,9 +178,9 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "PCA-reduced cube"
+                    "description": "PCA-reduced cube",
                 }
-            ]
+            ],
         },
         {
             "class_name": "ConcreteBandSelector",
@@ -193,15 +193,15 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Input cube"
+                    "description": "Input cube",
                 },
                 {
                     "name": "band_indices",
                     "dtype": "int64",
                     "shape": "[-1]",
                     "optional": False,
-                    "description": "Band indices to select"
-                }
+                    "description": "Band indices to select",
+                },
             ],
             "output_specs": [
                 {
@@ -209,9 +209,9 @@ def mock_grpc_server():
                     "dtype": "float32",
                     "shape": "[-1, -1, -1, -1]",
                     "optional": False,
-                    "description": "Cube with selected bands"
+                    "description": "Cube with selected bands",
                 }
-            ]
+            ],
         },
         # Add a node without specs to test edge cases
         {
@@ -220,17 +220,14 @@ def mock_grpc_server():
             "source": "builtin",
             "plugin_name": "",
             "input_specs": [],
-            "output_specs": []
-        }
+            "output_specs": [],
+        },
     ]
 
     mock_client = Mock(spec=CuvisAIClient)
     mock_client.session_id = "test-session-123"
     mock_client.list_available_nodes.return_value = nodes
-    mock_client.load_plugins.return_value = {
-        "loaded_plugins": ["cuvis_ai"],
-        "failed_plugins": []
-    }
+    mock_client.load_plugins.return_value = {"loaded_plugins": ["cuvis_ai"], "failed_plugins": []}
 
     return mock_client
 
@@ -348,8 +345,7 @@ def test_problematic_nodes_have_specs(mock_grpc_server):
         num_inputs = len(node.get("input_specs", []))
         num_outputs = len(node.get("output_specs", []))
 
-        assert num_inputs > 0 or num_outputs > 0, \
-            f"{node_name} ({issue}) has no port specs"
+        assert num_inputs > 0 or num_outputs > 0, f"{node_name} ({issue}) has no port specs"
 
 
 def test_port_spec_validation(mock_grpc_server):
@@ -357,9 +353,9 @@ def test_port_spec_validation(mock_grpc_server):
     nodes = mock_grpc_server.list_available_nodes()
 
     # Filter to nodes with specs
-    nodes_with_specs = [n for n in nodes
-                       if len(n.get("input_specs", [])) > 0
-                       or len(n.get("output_specs", [])) > 0]
+    nodes_with_specs = [
+        n for n in nodes if len(n.get("input_specs", [])) > 0 or len(n.get("output_specs", [])) > 0
+    ]
 
     assert len(nodes_with_specs) > 0
 
@@ -371,16 +367,18 @@ def test_port_spec_validation(mock_grpc_server):
             assert "name" in spec, f"{node_name} input {i} missing 'name'"
             assert "dtype" in spec, f"{node_name} input {i} missing 'dtype'"
             assert "optional" in spec, f"{node_name} input {i} missing 'optional'"
-            assert isinstance(spec["optional"], bool), \
+            assert isinstance(spec["optional"], bool), (
                 f"{node_name} input {i} 'optional' is not bool"
+            )
 
         # Check output specs
         for i, spec in enumerate(node.get("output_specs", [])):
             assert "name" in spec, f"{node_name} output {i} missing 'name'"
             assert "dtype" in spec, f"{node_name} output {i} missing 'dtype'"
             assert "optional" in spec, f"{node_name} output {i} missing 'optional'"
-            assert isinstance(spec["optional"], bool), \
+            assert isinstance(spec["optional"], bool), (
                 f"{node_name} output {i} 'optional' is not bool"
+            )
 
 
 def test_node_metadata_completeness(mock_grpc_server):
@@ -391,13 +389,16 @@ def test_node_metadata_completeness(mock_grpc_server):
         # Required fields
         assert node["class_name"], "Node has empty class_name"
         assert node["full_path"], "Node has empty full_path"
-        assert node["source"] in ["builtin", "plugin"], \
+        assert node["source"] in ["builtin", "plugin"], (
             f"Node {node['class_name']} has invalid source: {node['source']}"
+        )
 
         # Check full_path format (should be importable Python path)
-        assert "." in node["full_path"], \
+        assert "." in node["full_path"], (
             f"Node {node['class_name']} has invalid full_path: {node['full_path']}"
+        )
 
         # Class name should be in full_path
-        assert node["class_name"] in node["full_path"], \
+        assert node["class_name"] in node["full_path"], (
             f"Class name {node['class_name']} not in full_path {node['full_path']}"
+        )

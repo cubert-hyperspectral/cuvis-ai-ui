@@ -64,7 +64,7 @@ def main() -> None:
                 "You can still view and edit pipelines, but cannot:\n"
                 "- Load node catalog from server\n"
                 "- Run inference or training\n\n"
-                f"Check connection settings via Tools → Connect to Server.{detail_text}"
+                f"Check connection settings via Tools → Connect to Server.{detail_text}",
             )
 
     # Connect to gRPC server
@@ -84,7 +84,7 @@ def main() -> None:
             "You can still view and edit pipelines, but cannot:\n"
             "- Load node catalog from server\n"
             "- Run inference or training\n\n"
-            "Check connection settings via Tools → Connect to Server."
+            "Check connection settings via Tools → Connect to Server.",
         )
         client = None
 
@@ -137,7 +137,7 @@ def main() -> None:
                     "- The server has access to the cuvis-ai package\n\n"
                     "If plugin settings are stale, delete the persisted file\n"
                     f"and restart:\n{store_path}\n\n"
-                    "You can also reload plugins via Tools → Plugin Manager."
+                    "You can also reload plugins via Tools → Plugin Manager.",
                 )
         except Exception as e:
             logger.error(f"Failed to load plugins: {e}", exc_info=True)
@@ -148,7 +148,7 @@ def main() -> None:
                 f"Failed to load plugins:\n{e}\n\n"
                 "If plugin settings are stale, delete the persisted file\n"
                 f"and restart:\n{store_path}\n\n"
-                "You can also try again via Tools → Plugin Manager."
+                "You can also try again via Tools → Plugin Manager.",
             )
 
     # Create and attach widgets
@@ -183,10 +183,7 @@ def main() -> None:
                 window.node_registry.register_with_graph(window.graph)
             except Exception as e:
                 logger.error(f"Failed to refresh nodes: {e}")
-                QMessageBox.warning(
-                    window, "Refresh Failed",
-                    f"Failed to refresh node list:\n{e}"
-                )
+                QMessageBox.warning(window, "Refresh Failed", f"Failed to refresh node list:\n{e}")
 
     palette.refresh_requested.connect(on_refresh_requested)
 
@@ -194,8 +191,7 @@ def main() -> None:
     def show_plugin_manager() -> None:
         if client is None:
             QMessageBox.warning(
-                window, "Not Connected",
-                "Please connect to the gRPC server to manage plugins."
+                window, "Not Connected", "Please connect to the gRPC server to manage plugins."
             )
             return
 
@@ -233,7 +229,7 @@ def test_connection() -> None:
         from .grpc.client import CuvisAIClient
 
         with CuvisAIClient() as client:
-            print(f"[OK] Connected to gRPC server at localhost:50051")
+            print("[OK] Connected to gRPC server at localhost:50051")
             print(f"[OK] Session ID: {client.session_id}")
 
             # Load cuvis-ai catalog nodes via plugin manifest
@@ -261,7 +257,9 @@ def test_connection() -> None:
                 for node in nodes:
                     inputs = len(node.get("input_specs", []))
                     outputs = len(node.get("output_specs", []))
-                    print(f"  - {node['class_name']} ({node['source']}) [{inputs} in, {outputs} out]")
+                    print(
+                        f"  - {node['class_name']} ({node['source']}) [{inputs} in, {outputs} out]"
+                    )
 
             print()
             print("[OK] All connection tests passed!")

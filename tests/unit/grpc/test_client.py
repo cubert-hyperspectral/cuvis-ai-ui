@@ -1,7 +1,7 @@
 """Tests for gRPC client wrapper."""
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 from cuvis_ai_ui.grpc.client import CuvisAIClient, _dtype_to_string, _convert_port_specs
@@ -45,8 +45,8 @@ def test_client_initialization_with_defaults():
     assert client.max_retries == 3
 
 
-@patch('cuvis_ai_ui.grpc.client.grpc.insecure_channel')
-@patch('cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub')
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_connect_success(mock_stub_class, mock_channel, mock_grpc_stub):
     """Test successful connection to gRPC server."""
     mock_channel.return_value = Mock()
@@ -61,8 +61,8 @@ def test_connect_success(mock_stub_class, mock_channel, mock_grpc_stub):
     mock_channel.assert_called_once()
 
 
-@patch('cuvis_ai_ui.grpc.client.grpc.insecure_channel')
-@patch('cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub')
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_connect_failure_raises_connection_error(mock_stub_class, mock_channel):
     """Test connection failure raises ConnectionError after retries."""
     import grpc
@@ -92,8 +92,8 @@ def test_disconnect_when_not_connected():
     assert result is True
 
 
-@patch('cuvis_ai_ui.grpc.client.grpc.insecure_channel')
-@patch('cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub')
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_disconnect_success(mock_stub_class, mock_channel, mock_grpc_stub):
     """Test successful disconnection."""
     mock_channel_instance = Mock()
@@ -117,8 +117,8 @@ def test_create_session_not_connected_raises_error():
         client.create_session()
 
 
-@patch('cuvis_ai_ui.grpc.client.grpc.insecure_channel')
-@patch('cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub')
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_create_session_success(mock_stub_class, mock_channel, mock_grpc_stub):
     """Test creating a new session."""
     mock_channel.return_value = Mock()
@@ -133,8 +133,8 @@ def test_create_session_success(mock_stub_class, mock_channel, mock_grpc_stub):
     assert session_id == "test-session-123"
 
 
-@patch('cuvis_ai_ui.grpc.client.grpc.insecure_channel')
-@patch('cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub')
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_close_session(mock_stub_class, mock_channel, mock_grpc_stub):
     """Test closing a session."""
     mock_channel.return_value = Mock()
@@ -158,8 +158,8 @@ def test_close_session_without_session():
     assert result is True
 
 
-@patch('cuvis_ai_ui.grpc.client.grpc.insecure_channel')
-@patch('cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub')
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_context_manager(mock_stub_class, mock_channel, mock_grpc_stub):
     """Test using client as context manager."""
     mock_channel_instance = Mock()

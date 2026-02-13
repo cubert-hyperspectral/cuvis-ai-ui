@@ -122,10 +122,16 @@ class ServerManager:
             # Non-blocking read of whatever is available
             import msvcrt
             import ctypes
+
             handle = msvcrt.get_osfhandle(self._process.stdout.fileno())
             avail = ctypes.c_ulong(0)
             ctypes.windll.kernel32.PeekNamedPipe(
-                handle, None, 0, None, ctypes.byref(avail), None,
+                handle,
+                None,
+                0,
+                None,
+                ctypes.byref(avail),
+                None,
             )
             if avail.value > 0:
                 return self._process.stdout.read(avail.value).decode("utf-8", errors="replace")

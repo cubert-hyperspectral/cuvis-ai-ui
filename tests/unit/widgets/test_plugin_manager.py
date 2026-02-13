@@ -1,7 +1,6 @@
 """Unit tests for PluginManager widget."""
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from PySide6.QtWidgets import QDialogButtonBox, QTableWidget, QTabWidget
 
 from cuvis_ai_ui.widgets.plugin_manager import PluginManagerDialog
@@ -49,7 +48,7 @@ def test_plugin_manager_refresh_status(qapp, mock_grpc_client):
             "source": "builtin",
             "plugin_name": "",
             "input_specs": [],
-            "output_specs": []
+            "output_specs": [],
         }
     ]
 
@@ -66,7 +65,7 @@ def test_plugin_manager_plugins_loaded_signal(qapp, qtbot, mock_grpc_client):
     """Test that plugins_loaded signal is emitted."""
     mock_grpc_client.load_plugins.return_value = {
         "loaded_plugins": ["test_plugin"],
-        "failed_plugins": []
+        "failed_plugins": [],
     }
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
@@ -155,12 +154,12 @@ def test_plugin_manager_status_tab_is_first(qapp, mock_grpc_client):
     assert "Loaded" in first_tab_text or "Status" in first_tab_text
 
 
-@patch('cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries')
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
 def test_plugin_manager_loads_saved_entries(mock_load, qapp, mock_grpc_client):
     """Test that dialog loads saved plugin entries on init."""
     mock_load.return_value = []
 
-    dialog = PluginManagerDialog(client=mock_grpc_client)
+    _dialog = PluginManagerDialog(client=mock_grpc_client)
 
     # Should have called load_plugin_entries
     mock_load.assert_called()
@@ -238,7 +237,7 @@ def test_plugin_manager_is_refreshing_flag(qapp, mock_grpc_client):
     assert isinstance(dialog._is_refreshing, bool)
 
 
-@patch('cuvis_ai_ui.widgets.plugin_manager.QFileDialog.getOpenFileName')
+@patch("cuvis_ai_ui.widgets.plugin_manager.QFileDialog.getOpenFileName")
 def test_plugin_manager_manifest_file_dialog(mock_file_dialog, qapp, mock_grpc_client):
     """Test that manifest tab can trigger file dialog."""
     mock_file_dialog.return_value = ("", "")  # User cancels
@@ -251,7 +250,7 @@ def test_plugin_manager_manifest_file_dialog(mock_file_dialog, qapp, mock_grpc_c
     buttons = dialog.findChildren(QPushButton)
 
     # Look for a browse/select button
-    browse_found = any("Browse" in btn.text() or "Select" in btn.text() for btn in buttons)
+    _browse_found = any("Browse" in btn.text() or "Select" in btn.text() for btn in buttons)
 
     # May or may not have browse button, depends on implementation
     assert dialog is not None  # Just ensure dialog doesn't crash
@@ -272,4 +271,5 @@ def test_plugin_manager_dialog_is_modal(qapp, mock_grpc_client):
     # Should be a dialog that can be shown
     # Don't actually show it in tests, just verify it's a QDialog
     from PySide6.QtWidgets import QDialog
+
     assert isinstance(dialog, QDialog)

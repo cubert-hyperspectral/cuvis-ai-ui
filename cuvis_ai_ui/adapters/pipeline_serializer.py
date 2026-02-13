@@ -133,7 +133,7 @@ class PipelineSerializer:
 
         # Create nodes
         node_map: dict[str, CuvisNodeAdapter] = {}
-        
+
         for i, node_config in enumerate(pipeline_config.nodes):
             # Convert NodeConfig to dict for _create_node
             node_dict = {
@@ -168,9 +168,7 @@ class PipelineSerializer:
             )
         if self._load_failed_nodes:
             failed = ", ".join(self._load_failed_nodes)
-            self.last_load_warnings.append(
-                "Failed to create nodes: " + failed
-            )
+            self.last_load_warnings.append("Failed to create nodes: " + failed)
         if self._load_failed_connections:
             self.last_load_warnings.append(
                 f"{self._load_failed_connections} connection(s) could not be created."
@@ -303,9 +301,7 @@ class PipelineSerializer:
 
         # Validate types
         if source_type != "outputs" or target_type != "inputs":
-            logger.warning(
-                f"Invalid connection types: {source_type} -> {target_type}"
-            )
+            logger.warning(f"Invalid connection types: {source_type} -> {target_type}")
             return False
 
         # Get nodes
@@ -385,7 +381,8 @@ class PipelineSerializer:
         while len(placed) < len(nodes):
             # Find nodes with all dependencies satisfied
             ready = [
-                name for name, deps in dependencies.items()
+                name
+                for name, deps in dependencies.items()
                 if name not in placed and deps.issubset(placed)
             ]
 
@@ -474,11 +471,11 @@ class PipelineSerializer:
                     "class": getattr(node, "_cuvis_class_path", node.__class__.__name__),
                     "name": node.name(),
                 }
-            
+
             # Ensure we use 'params' not 'hparams' for Pydantic
             if "hparams" in node_dict and "params" not in node_dict:
                 node_dict["params"] = node_dict.pop("hparams")
-            
+
             nodes_list.append(NodeConfig(**node_dict))
 
         # Build connection configs using proper from/to format
@@ -506,7 +503,7 @@ class PipelineSerializer:
 
             # Return validated configuration as dict
             return pipeline_config.to_dict()
-            
+
         except Exception as e:
             logger.error(f"Failed to create validated pipeline config: {e}")
             # Fallback to basic dict structure
@@ -520,9 +517,7 @@ class PipelineSerializer:
                     }
                     for n in nodes_list
                 ],
-                "connections": [
-                    {"from": c.from_, "to": c.to} for c in connections_list
-                ],
+                "connections": [{"from": c.from_, "to": c.to} for c in connections_list],
             }
 
     def validate_round_trip(

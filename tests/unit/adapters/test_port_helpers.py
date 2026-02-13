@@ -25,29 +25,21 @@ def mock_node():
 def sample_port_spec():
     """Sample PortSpec for testing."""
     return PortSpec(
-        dtype="float32",
-        shape=(-1, -1, -1, -1),
-        description="Test port",
-        optional=False
+        dtype="float32", shape=(-1, -1, -1, -1), description="Test port", optional=False
     )
 
 
 @pytest.fixture
 def multi_input_port_spec():
     """PortSpec with multi_input enabled."""
-    spec = PortSpec(
-        dtype="float32",
-        shape=(-1,),
-        description="Multi-input port",
-        optional=False
-    )
+    spec = PortSpec(dtype="float32", shape=(-1,), description="Multi-input port", optional=False)
     spec.multi_input = True
     return spec
 
 
 def test_create_input_port(mock_node, sample_port_spec):
     """Test creating an input port from PortSpec."""
-    port = create_input_port(mock_node, "test_port", sample_port_spec)
+    _port = create_input_port(mock_node, "test_port", sample_port_spec)
 
     # Verify add_input was called
     mock_node.add_input.assert_called_once()
@@ -65,7 +57,7 @@ def test_create_input_port(mock_node, sample_port_spec):
 
 def test_create_input_port_with_multi_input(mock_node, multi_input_port_spec):
     """Test creating a multi-input port."""
-    port = create_input_port(mock_node, "multi_port", multi_input_port_spec)
+    _port = create_input_port(mock_node, "multi_port", multi_input_port_spec)
 
     mock_node.add_input.assert_called_once()
     call_kwargs = mock_node.add_input.call_args.kwargs
@@ -74,7 +66,7 @@ def test_create_input_port_with_multi_input(mock_node, multi_input_port_spec):
 
 def test_create_output_port(mock_node, sample_port_spec):
     """Test creating an output port from PortSpec."""
-    port = create_output_port(mock_node, "test_port", sample_port_spec)
+    _port = create_output_port(mock_node, "test_port", sample_port_spec)
 
     # Verify add_output was called
     mock_node.add_output.assert_called_once()
@@ -124,7 +116,6 @@ def test_get_port_spec_not_found(mock_node):
 
 def test_get_port_spec_no_specs_attribute():
     """Test get_port_spec on a node without _cuvis_port_specs."""
-    from unittest.mock import Mock
 
     # Use Mock instead of MagicMock to avoid auto-creating attributes
     node = Mock(spec=[])  # Empty spec means no attributes
@@ -166,7 +157,7 @@ def test_validate_connection_incompatible_types():
 
     assert is_valid is False
     # Error message from cuvis-ai-schemas PortSpec.is_compatible_with()
-    assert ("Dtype mismatch" in error_msg or "Type mismatch" in error_msg)
+    assert "Dtype mismatch" in error_msg or "Type mismatch" in error_msg
     assert "float32" in error_msg
     assert "int64" in error_msg
 

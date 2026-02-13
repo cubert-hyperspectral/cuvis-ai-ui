@@ -1,11 +1,10 @@
 """Shared pytest fixtures for cuvis-ai-ui tests."""
 
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from PySide6.QtWidgets import QApplication
 
-from cuvis_ai_ui.adapters import NodeRegistry, CuvisNodeAdapter
+from cuvis_ai_ui.adapters import NodeRegistry
 from cuvis_ai_ui.grpc.client import CuvisAIClient
 
 
@@ -24,10 +23,7 @@ def mock_grpc_client():
     client = Mock(spec=CuvisAIClient)
     client.session_id = "test-session-123"
     client.list_available_nodes.return_value = []
-    client.load_plugins.return_value = {
-        "loaded_plugins": [],
-        "failed_plugins": []
-    }
+    client.load_plugins.return_value = {"loaded_plugins": [], "failed_plugins": []}
     return client
 
 
@@ -45,7 +41,7 @@ def sample_node_info():
                 "dtype": "float32",
                 "shape": "[-1, -1, -1, -1]",
                 "optional": False,
-                "description": "Input hyperspectral cube"
+                "description": "Input hyperspectral cube",
             }
         ],
         "output_specs": [
@@ -54,9 +50,9 @@ def sample_node_info():
                 "dtype": "float32",
                 "shape": "[-1, -1, -1, -1]",
                 "optional": False,
-                "description": "Normalized cube"
+                "description": "Normalized cube",
             }
-        ]
+        ],
     }
 
 
@@ -72,26 +68,16 @@ def node_registry(sample_node_info):
 def sample_pipeline_config():
     """Sample pipeline configuration for testing."""
     return {
-        "metadata": {
-            "name": "Test Pipeline",
-            "description": "A test pipeline",
-            "tags": ["test"]
-        },
+        "metadata": {"name": "Test Pipeline", "description": "A test pipeline", "tags": ["test"]},
         "nodes": [
             {
                 "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {"min": 0.0, "max": 1.0}
+                "params": {"min": 0.0, "max": 1.0},
             },
-            {
-                "class": "cuvis_ai.node.model.SimpleModel",
-                "name": "model",
-                "params": {}
-            }
+            {"class": "cuvis_ai.node.model.SimpleModel", "name": "model", "params": {}},
         ],
-        "connections": [
-            {"from": "normalizer.outputs.cube", "to": "model.inputs.data"}
-        ]
+        "connections": [{"from": "normalizer.outputs.cube", "to": "model.inputs.data"}],
     }
 
 

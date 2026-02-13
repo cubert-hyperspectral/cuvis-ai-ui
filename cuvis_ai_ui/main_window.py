@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
                 "",
                 "YAML Files (*.yaml *.yml);;All Files (*)",
             )
-        
+
         # Validate path (handles cancel dialog, empty string, etc.)
         if not path:
             return
@@ -466,9 +466,7 @@ class MainWindow(QMainWindow):
                     "doesn't have access to the package that provides those nodes.",
                 )
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error", f"Failed to open pipeline:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to open pipeline:\n{e}")
             logger.error(f"Failed to open pipeline {path}: {e}")
 
     def save_pipeline(self) -> None:
@@ -511,9 +509,7 @@ class MainWindow(QMainWindow):
             self._status_bar.showMessage(f"Saved: {path}", 3000)
             logger.info(f"Saved pipeline: {path}")
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error", f"Failed to save pipeline:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to save pipeline:\n{e}")
             logger.error(f"Failed to save pipeline {path}: {e}")
 
     # Edit operations
@@ -619,23 +615,17 @@ class MainWindow(QMainWindow):
     def _refresh_nodes(self) -> None:
         """Refresh the node list from the server."""
         if self._client is None:
-            QMessageBox.warning(
-                self, "Not Connected", "Please connect to a server first."
-            )
+            QMessageBox.warning(self, "Not Connected", "Please connect to a server first.")
             return
 
         try:
             nodes = self._client.list_available_nodes()
             self._node_registry.clear()
             self._node_registry.register_nodes(nodes)
-            self._status_bar.showMessage(
-                f"Refreshed: {len(nodes)} nodes available", 3000
-            )
+            self._status_bar.showMessage(f"Refreshed: {len(nodes)} nodes available", 3000)
             logger.info(f"Refreshed node list: {len(nodes)} nodes")
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error", f"Failed to refresh nodes:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to refresh nodes:\n{e}")
             logger.error(f"Failed to refresh nodes: {e}")
 
     def _show_pipeline_info(self) -> None:

@@ -66,7 +66,9 @@ def main():
             if plugin_nodes:
                 print(f"\n   Plugin Nodes ({len(plugin_nodes)}):")
                 for node in sorted(plugin_nodes, key=lambda n: n["class_name"])[:10]:
-                    print(f"      - {node['class_name']} (from {node.get('plugin_name', 'unknown')})")
+                    print(
+                        f"      - {node['class_name']} (from {node.get('plugin_name', 'unknown')})"
+                    )
                 if len(plugin_nodes) > 10:
                     print(f"      ... and {len(plugin_nodes) - 10} more")
 
@@ -82,6 +84,7 @@ def main():
     except Exception as e:
         print(f"   ✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
 
     # Summary

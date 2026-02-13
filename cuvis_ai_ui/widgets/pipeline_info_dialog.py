@@ -67,9 +67,7 @@ class PipelineInfoDialog(QDialog):
 
         # Main form layout
         form_layout = QFormLayout()
-        form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         # Name field (required)
         self._name_edit = QLineEdit()
@@ -94,9 +92,7 @@ class PipelineInfoDialog(QDialog):
 
         # Created field (read-only, auto-generated)
         self._created_label = QLabel()
-        self._created_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self._created_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form_layout.addRow("Created:", self._created_label)
 
         layout.addLayout(form_layout)
@@ -156,17 +152,13 @@ class PipelineInfoDialog(QDialog):
             "author",
             "created",
         }
-        extra_fields = {
-            k: v for k, v in self._metadata.items() if k not in standard_fields
-        }
+        extra_fields = {k: v for k, v in self._metadata.items() if k not in standard_fields}
 
         if extra_fields:
             self._extra_fields_group.setVisible(True)
             for key, value in extra_fields.items():
                 label = QLabel(str(value))
-                label.setTextInteractionFlags(
-                    Qt.TextInteractionFlag.TextSelectableByMouse
-                )
+                label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
                 label.setWordWrap(True)
                 self._extra_fields_layout.addRow(f"{key}:", label)
 

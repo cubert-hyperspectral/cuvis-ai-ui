@@ -20,12 +20,16 @@ def _make_torch_stub():
     # --- torch.dtype stub ---------------------------------------------------
     class _dtype:
         """Minimal stand-in for torch.dtype."""
+
         def __init__(self, name="float32"):
             self._name = name
+
         def __repr__(self):
             return f"torch.{self._name}"
+
         def __eq__(self, other):
             return isinstance(other, _dtype) and self._name == other._name
+
         def __hash__(self):
             return hash(self._name)
 
@@ -33,16 +37,25 @@ def _make_torch_stub():
 
     # Common dtype instances that PortSpec.normalize_dtype may encounter
     for name in (
-        "float16", "float32", "float64",
-        "int8", "int16", "int32", "int64",
-        "bool", "uint8", "bfloat16",
-        "complex64", "complex128",
+        "float16",
+        "float32",
+        "float64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "bool",
+        "uint8",
+        "bfloat16",
+        "complex64",
+        "complex128",
     ):
         setattr(torch, name, _dtype(name))
 
     # --- torch.Tensor stub --------------------------------------------------
     class _Tensor:
         """Minimal stand-in for torch.Tensor (used only as a sentinel type)."""
+
         pass
 
     torch.Tensor = _Tensor

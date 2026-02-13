@@ -124,17 +124,13 @@ class PluginManagerDialog(QDialog):
         # Status table
         self._status_table = QTableWidget()
         self._status_table.setColumnCount(5)
-        self._status_table.setHorizontalHeaderLabels([
-            "Load", "Plugin Name", "Type", "Source", "Provided Nodes"
-        ])
+        self._status_table.setHorizontalHeaderLabels(
+            ["Load", "Plugin Name", "Type", "Source", "Provided Nodes"]
+        )
         header = self._status_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(
-            STATUS_COL_LOAD, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self._status_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
+        header.setSectionResizeMode(STATUS_COL_LOAD, QHeaderView.ResizeMode.ResizeToContents)
+        self._status_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._status_table.itemChanged.connect(self._on_status_item_changed)
         layout.addWidget(self._status_table)
 
@@ -184,10 +180,9 @@ class PluginManagerDialog(QDialog):
         provides_group = QGroupBox("Provided Nodes (optional)")
         provides_layout = QVBoxLayout(provides_group)
 
-        provides_layout.addWidget(QLabel(
-            "List node class paths, one per line. "
-            "Leave empty to auto-discover."
-        ))
+        provides_layout.addWidget(
+            QLabel("List node class paths, one per line. Leave empty to auto-discover.")
+        )
 
         self._git_provides = QTextEdit()
         self._git_provides.setPlaceholderText(
@@ -235,10 +230,9 @@ class PluginManagerDialog(QDialog):
         provides_group = QGroupBox("Provided Nodes (optional)")
         provides_layout = QVBoxLayout(provides_group)
 
-        provides_layout.addWidget(QLabel(
-            "List node class paths, one per line. "
-            "Leave empty to auto-discover."
-        ))
+        provides_layout.addWidget(
+            QLabel("List node class paths, one per line. Leave empty to auto-discover.")
+        )
 
         self._local_provides = QTextEdit()
         self._local_provides.setPlaceholderText(
@@ -262,10 +256,12 @@ class PluginManagerDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         # Instructions
-        layout.addWidget(QLabel(
-            "Load plugins from a YAML manifest file.\n"
-            "The manifest defines multiple plugins with their sources and nodes."
-        ))
+        layout.addWidget(
+            QLabel(
+                "Load plugins from a YAML manifest file.\n"
+                "The manifest defines multiple plugins with their sources and nodes."
+            )
+        )
 
         # File selection
         file_group = QGroupBox("Manifest File")
@@ -315,15 +311,10 @@ class PluginManagerDialog(QDialog):
                     continue
                 plugin_name = node.get("plugin_name") or ""
                 if plugin_name:
-                    loaded_node_counts[plugin_name] = (
-                        loaded_node_counts.get(plugin_name, 0) + 1
-                    )
+                    loaded_node_counts[plugin_name] = loaded_node_counts.get(plugin_name, 0) + 1
         except Exception as e:
             logger.error(f"Failed to refresh plugin status: {e}")
-            QMessageBox.warning(
-                self, "Warning",
-                f"Failed to refresh plugin status:\n{e}"
-            )
+            QMessageBox.warning(self, "Warning", f"Failed to refresh plugin status:\n{e}")
 
         self._status_table.setRowCount(len(self._plugin_entries))
         for row, entry in enumerate(self._plugin_entries):
@@ -482,9 +473,7 @@ class PluginManagerDialog(QDialog):
 
     def _browse_local_path(self) -> None:
         """Browse for local plugin path."""
-        path = QFileDialog.getExistingDirectory(
-            self, "Select Plugin Directory"
-        )
+        path = QFileDialog.getExistingDirectory(self, "Select Plugin Directory")
         if path:
             self._local_path.setText(path)
             # Auto-fill name from directory name
@@ -494,8 +483,7 @@ class PluginManagerDialog(QDialog):
     def _browse_manifest(self) -> None:
         """Browse for manifest file."""
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Manifest File",
-            "", "YAML Files (*.yaml *.yml);;All Files (*)"
+            self, "Select Manifest File", "", "YAML Files (*.yaml *.yml);;All Files (*)"
         )
         if path:
             self._manifest_path.setText(path)
@@ -537,11 +525,7 @@ class PluginManagerDialog(QDialog):
 
         # Add provides if specified
         if provides_text:
-            provides = [
-                line.strip()
-                for line in provides_text.split("\n")
-                if line.strip()
-            ]
+            provides = [line.strip() for line in provides_text.split("\n") if line.strip()]
             manifest["plugins"][name]["provides"] = provides
 
         self._load_plugins(manifest, source="git")
@@ -575,11 +559,7 @@ class PluginManagerDialog(QDialog):
 
         # Add provides if specified
         if provides_text:
-            provides = [
-                line.strip()
-                for line in provides_text.split("\n")
-                if line.strip()
-            ]
+            provides = [line.strip() for line in provides_text.split("\n") if line.strip()]
             manifest["plugins"][name]["provides"] = provides
 
         self._load_plugins(manifest, source="local")
@@ -602,17 +582,11 @@ class PluginManagerDialog(QDialog):
             with open(path, "r", encoding="utf-8") as f:
                 manifest = yaml.safe_load(f) or {}
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error",
-                f"Failed to read manifest:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to read manifest:\n{e}")
             return
 
         if not isinstance(manifest, dict) or "plugins" not in manifest:
-            QMessageBox.critical(
-                self, "Error",
-                "Manifest is missing a 'plugins' section."
-            )
+            QMessageBox.critical(self, "Error", "Manifest is missing a 'plugins' section.")
             return
 
         try:
@@ -622,10 +596,7 @@ class PluginManagerDialog(QDialog):
             failed = result.get("failed_plugins", [])
 
             if loaded:
-                QMessageBox.information(
-                    self, "Success",
-                    f"Loaded plugins: {', '.join(loaded)}"
-                )
+                QMessageBox.information(self, "Success", f"Loaded plugins: {', '.join(loaded)}")
                 self.plugins_loaded.emit(loaded)
                 self._persist_plugins_from_manifest(
                     manifest,
@@ -638,16 +609,12 @@ class PluginManagerDialog(QDialog):
             if failed:
                 errors = self._format_failed_plugins(failed)
                 QMessageBox.warning(
-                    self, "Partial Failure",
-                    f"Some plugins failed to load:\n{errors}"
+                    self, "Partial Failure", f"Some plugins failed to load:\n{errors}"
                 )
 
         except Exception as e:
             logger.error(f"Failed to load plugins: {e}")
-            QMessageBox.critical(
-                self, "Error",
-                f"Failed to load plugins:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to load plugins:\n{e}")
 
     def _load_plugins(
         self,
@@ -671,10 +638,7 @@ class PluginManagerDialog(QDialog):
             failed = result.get("failed_plugins", [])
 
             if loaded:
-                QMessageBox.information(
-                    self, "Success",
-                    f"Loaded plugins: {', '.join(loaded)}"
-                )
+                QMessageBox.information(self, "Success", f"Loaded plugins: {', '.join(loaded)}")
                 self.plugins_loaded.emit(loaded)
                 if source:
                     self._persist_plugins_from_manifest(
@@ -688,16 +652,12 @@ class PluginManagerDialog(QDialog):
             if failed:
                 errors = self._format_failed_plugins(failed)
                 QMessageBox.warning(
-                    self, "Partial Failure",
-                    f"Some plugins failed to load:\n{errors}"
+                    self, "Partial Failure", f"Some plugins failed to load:\n{errors}"
                 )
 
         except Exception as e:
             logger.error(f"Failed to load plugins: {e}")
-            QMessageBox.critical(
-                self, "Error",
-                f"Failed to load plugins:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to load plugins:\n{e}")
         finally:
             try:
                 Path(temp_path).unlink()
@@ -800,16 +760,10 @@ class SessionDialog(QDialog):
             session_id = self._client.create_session()
             self._update_display()
             self.session_changed.emit(session_id)
-            QMessageBox.information(
-                self, "Success",
-                f"Created session: {session_id}"
-            )
+            QMessageBox.information(self, "Success", f"Created session: {session_id}")
         except Exception as e:
             logger.error(f"Failed to create session: {e}")
-            QMessageBox.critical(
-                self, "Error",
-                f"Failed to create session:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to create session:\n{e}")
 
     def _close_session(self) -> None:
         """Close the current session."""
@@ -820,16 +774,10 @@ class SessionDialog(QDialog):
             self._client.close_session()
             self._update_display()
             self.session_changed.emit("")
-            QMessageBox.information(
-                self, "Success",
-                "Session closed"
-            )
+            QMessageBox.information(self, "Success", "Session closed")
         except Exception as e:
             logger.error(f"Failed to close session: {e}")
-            QMessageBox.critical(
-                self, "Error",
-                f"Failed to close session:\n{e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to close session:\n{e}")
 
     def set_client(self, client: CuvisAIClient | None) -> None:
         """Set the gRPC client.

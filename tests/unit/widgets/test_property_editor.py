@@ -1,8 +1,8 @@
 """Unit tests for PropertyEditor widget."""
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from PySide6.QtWidgets import QSpinBox, QDoubleSpinBox, QCheckBox, QLineEdit, QComboBox
+from unittest.mock import MagicMock
+from PySide6.QtWidgets import QSpinBox, QDoubleSpinBox, QCheckBox, QLineEdit
 
 from cuvis_ai_ui.widgets.property_editor import PropertyEditor
 
@@ -23,14 +23,14 @@ def mock_node_adapter(sample_node_info):
         "int_param": 10,
         "float_param": 0.5,
         "bool_param": True,
-        "str_param": "test"
+        "str_param": "test",
     }
 
     node.get_hyperparameter_types.return_value = {
         "int_param": int,
         "float_param": float,
         "bool_param": bool,
-        "str_param": str
+        "str_param": str,
     }
 
     # Mock port specs

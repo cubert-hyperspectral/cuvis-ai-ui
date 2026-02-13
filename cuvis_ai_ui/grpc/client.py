@@ -144,9 +144,7 @@ class CuvisAIClient:
                     ("grpc.max_receive_message_length", 100 * 1024 * 1024),
                     ("grpc.max_send_message_length", 100 * 1024 * 1024),
                 ]
-                self.channel = grpc.insecure_channel(
-                    f"{self.host}:{self.port}", options=options
-                )
+                self.channel = grpc.insecure_channel(f"{self.host}:{self.port}", options=options)
                 self.stub = cuvis_ai_pb2_grpc.CuvisAIServiceStub(self.channel)
 
                 # Health check: try to create session
@@ -322,9 +320,7 @@ class CuvisAIClient:
             response = self.stub.LoadPlugins(
                 cuvis_ai_pb2.LoadPluginsRequest(
                     session_id=self.session_id,
-                    manifest=cuvis_ai_pb2.PluginManifest(
-                        config_bytes=manifest_json.encode()
-                    ),
+                    manifest=cuvis_ai_pb2.PluginManifest(config_bytes=manifest_json.encode()),
                 ),
                 timeout=self.timeout,
             )
@@ -494,9 +490,7 @@ class CuvisAIClient:
             response = self.stub.LoadPipeline(
                 cuvis_ai_pb2.LoadPipelineRequest(
                     session_id=self.session_id,
-                    pipeline=cuvis_ai_pb2.PipelineConfig(
-                        config_bytes=config_json.encode()
-                    ),
+                    pipeline=cuvis_ai_pb2.PipelineConfig(config_bytes=config_json.encode()),
                 ),
                 timeout=self.timeout,
             )

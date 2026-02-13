@@ -6,8 +6,11 @@ from PIL import Image
 
 SIZES = [16, 32, 48, 64, 128, 256]
 
+
 def main() -> None:
-    src = Path(__file__).resolve().parent.parent / "cuvis_ai_ui" / "resources" / "icons" / "logo.png"
+    src = (
+        Path(__file__).resolve().parent.parent / "cuvis_ai_ui" / "resources" / "icons" / "logo.png"
+    )
     dst = Path(__file__).resolve().parent / "logo.ico"
 
     if not src.exists():

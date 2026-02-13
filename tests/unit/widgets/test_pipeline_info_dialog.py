@@ -1,8 +1,6 @@
 """Unit tests for PipelineInfoDialog widget."""
 
-import pytest
 from PySide6.QtWidgets import QDialogButtonBox
-from PySide6.QtCore import Qt
 
 from cuvis_ai_ui.widgets.pipeline_info_dialog import PipelineInfoDialog
 
@@ -21,7 +19,7 @@ def test_pipeline_info_dialog_with_metadata(qapp):
         "name": "Test Pipeline",
         "description": "A test pipeline description",
         "tags": ["test", "example"],
-        "author": "Test Author"
+        "author": "Test Author",
     }
 
     dialog = PipelineInfoDialog(metadata=metadata)
@@ -37,7 +35,7 @@ def test_pipeline_info_dialog_get_metadata(qapp):
     metadata = {
         "name": "Test Pipeline",
         "description": "Test description",
-        "tags": ["tag1", "tag2"]
+        "tags": ["tag1", "tag2"],
     }
 
     dialog = PipelineInfoDialog(metadata=metadata)
@@ -77,10 +75,7 @@ def test_pipeline_info_dialog_empty_metadata(qapp):
 
 def test_pipeline_info_dialog_tags_parsing(qapp):
     """Test that tags are properly parsed from comma-separated string."""
-    metadata = {
-        "name": "Test",
-        "tags": ["tag1", "tag2", "tag3"]
-    }
+    metadata = {"name": "Test", "tags": ["tag1", "tag2", "tag3"]}
 
     dialog = PipelineInfoDialog(metadata=metadata)
 
@@ -111,10 +106,7 @@ def test_pipeline_info_dialog_tags_output(qapp):
 
 def test_pipeline_info_dialog_created_timestamp(qapp):
     """Test that created timestamp is handled correctly."""
-    metadata = {
-        "name": "Test",
-        "created": "2024-01-01T12:00:00"
-    }
+    metadata = {"name": "Test", "created": "2024-01-01T12:00:00"}
 
     dialog = PipelineInfoDialog(metadata=metadata)
 
@@ -178,11 +170,7 @@ def test_pipeline_info_dialog_field_placeholders(qapp):
 
 def test_pipeline_info_dialog_custom_metadata_fields(qapp):
     """Test handling of custom/unknown metadata fields."""
-    metadata = {
-        "name": "Test",
-        "custom_field": "custom_value",
-        "another_field": 123
-    }
+    metadata = {"name": "Test", "custom_field": "custom_value", "another_field": 123}
 
     dialog = PipelineInfoDialog(metadata=metadata)
 
@@ -216,7 +204,7 @@ def test_pipeline_info_dialog_metadata_persistence(qapp):
         "name": "Original Pipeline",
         "description": "Original description with\nmultiple lines",
         "tags": ["tag1", "tag2"],
-        "author": "Original Author"
+        "author": "Original Author",
     }
 
     # Create dialog with metadata

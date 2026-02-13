@@ -1,7 +1,6 @@
 """Unit tests for NodePalette widget."""
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
 
 from cuvis_ai_ui.widgets.node_palette import NodePalette, NodePaletteItem
 
@@ -36,7 +35,7 @@ def test_node_palette_item_with_empty_specs():
         "full_path": "test.EmptyNode",
         "source": "builtin",
         "input_specs": [],
-        "output_specs": []
+        "output_specs": [],
     }
 
     mock_parent = MagicMock()
@@ -118,32 +117,34 @@ def test_node_palette_organizes_by_category(qapp):
 
     # Create registry with nodes from different plugins
     registry = NodeRegistry()
-    registry.register_nodes([
-        {
-            "class_name": "Node1",
-            "full_path": "plugin1.Node1",
-            "source": "plugin",
-            "plugin_name": "plugin1",
-            "input_specs": [],
-            "output_specs": []
-        },
-        {
-            "class_name": "Node2",
-            "full_path": "plugin2.Node2",
-            "source": "plugin",
-            "plugin_name": "plugin2",
-            "input_specs": [],
-            "output_specs": []
-        },
-        {
-            "class_name": "Builtin",
-            "full_path": "cuvis_ai.Builtin",
-            "source": "builtin",
-            "plugin_name": "",
-            "input_specs": [],
-            "output_specs": []
-        }
-    ])
+    registry.register_nodes(
+        [
+            {
+                "class_name": "Node1",
+                "full_path": "plugin1.Node1",
+                "source": "plugin",
+                "plugin_name": "plugin1",
+                "input_specs": [],
+                "output_specs": [],
+            },
+            {
+                "class_name": "Node2",
+                "full_path": "plugin2.Node2",
+                "source": "plugin",
+                "plugin_name": "plugin2",
+                "input_specs": [],
+                "output_specs": [],
+            },
+            {
+                "class_name": "Builtin",
+                "full_path": "cuvis_ai.Builtin",
+                "source": "builtin",
+                "plugin_name": "",
+                "input_specs": [],
+                "output_specs": [],
+            },
+        ]
+    )
 
     palette = NodePalette(mock_graph)
     palette.populate_from_registry(registry)
@@ -213,12 +214,8 @@ def test_node_palette_port_spec_in_tooltip():
         "class_name": "TestNode",
         "full_path": "test.TestNode",
         "source": "builtin",
-        "input_specs": [
-            PortSpec(name="in1", dtype="float32", shape=[-1], optional=False)
-        ],
-        "output_specs": [
-            PortSpec(name="out1", dtype="int64", shape=[-1], optional=True)
-        ]
+        "input_specs": [PortSpec(name="in1", dtype="float32", shape=[-1], optional=False)],
+        "output_specs": [PortSpec(name="out1", dtype="int64", shape=[-1], optional=True)],
     }
 
     mock_parent = MagicMock()
@@ -241,7 +238,7 @@ def test_node_palette_with_plugin_source():
         "source": "plugin",
         "plugin_name": "my_plugin",
         "input_specs": [],
-        "output_specs": []
+        "output_specs": [],
     }
 
     mock_parent = MagicMock()
