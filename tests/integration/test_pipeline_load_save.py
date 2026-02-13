@@ -52,7 +52,7 @@ def test_save_pipeline_to_yaml_file(sample_pipeline_config, node_registry, tmp_p
     graph = NodeGraph()
 
     # Load from config
-    metadata = serializer.from_config(sample_pipeline_config, graph)
+    _metadata = serializer.from_config(sample_pipeline_config, graph)
 
     # Save to file
     output_file = tmp_path / "output_pipeline.yaml"
@@ -77,7 +77,7 @@ def test_save_pipeline_to_config_dict(sample_pipeline_config, node_registry):
     graph = NodeGraph()
 
     # Load from config
-    metadata = serializer.from_config(sample_pipeline_config, graph)
+    _metadata = serializer.from_config(sample_pipeline_config, graph)
 
     # Convert back to config
     output_config = serializer.to_config(graph)
@@ -95,7 +95,7 @@ def test_pipeline_round_trip(sample_pipeline_config, node_registry, tmp_path):
 
     # Step 1: Config → Graph
     graph1 = NodeGraph()
-    metadata = serializer.from_config(sample_pipeline_config, graph1)
+    _metadata = serializer.from_config(sample_pipeline_config, graph1)
     original_node_count = len(graph1.all_nodes())
 
     # Step 2: Graph → File
@@ -104,7 +104,7 @@ def test_pipeline_round_trip(sample_pipeline_config, node_registry, tmp_path):
 
     # Step 3: File → Graph
     graph2 = NodeGraph()
-    metadata2 = serializer.from_yaml_file(temp_file, graph2)
+    _metadata2 = serializer.from_yaml_file(temp_file, graph2)
 
     # Step 4: Graph → Config
     output_config = serializer.to_config(graph2)
@@ -123,16 +123,16 @@ def test_load_pipeline_with_metadata(node_registry, tmp_path):
             "name": "Test Pipeline",
             "description": "A test pipeline with metadata",
             "tags": ["test", "example"],
-            "author": "Test Author"
+            "author": "Test Author",
         },
         "nodes": [
             {
                 "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {}
+                "params": {},
             }
         ],
-        "connections": []
+        "connections": [],
     }
 
     serializer = PipelineSerializer(node_registry)
@@ -164,23 +164,21 @@ def test_load_pipeline_with_connections(node_registry, tmp_path):
             {
                 "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {}
+                "params": {},
             },
             {
                 "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer2",
-                "params": {}
-            }
+                "params": {},
+            },
         ],
-        "connections": [
-            {"from": "normalizer.outputs.cube", "to": "normalizer2.inputs.cube"}
-        ]
+        "connections": [{"from": "normalizer.outputs.cube", "to": "normalizer2.inputs.cube"}],
     }
 
     serializer = PipelineSerializer(node_registry)
     graph = NodeGraph()
 
-    metadata = serializer.from_config(config, graph)
+    _metadata = serializer.from_config(config, graph)
 
     # Should have connections (implementation-dependent)
     # At minimum, should not crash with connections
@@ -224,14 +222,8 @@ def test_load_pipeline_with_missing_nodes(node_registry, tmp_path):
 
     config = {
         "metadata": {"name": "Missing Nodes Pipeline"},
-        "nodes": [
-            {
-                "class": "nonexistent.node.FakeNode",
-                "name": "fake_node",
-                "params": {}
-            }
-        ],
-        "connections": []
+        "nodes": [{"class": "nonexistent.node.FakeNode", "name": "fake_node", "params": {}}],
+        "connections": [],
     }
 
     serializer = PipelineSerializer(node_registry)
@@ -239,7 +231,7 @@ def test_load_pipeline_with_missing_nodes(node_registry, tmp_path):
 
     # Should handle gracefully (may skip unknown nodes or raise exception)
     try:
-        metadata = serializer.from_config(config, graph)
+        _metadata = serializer.from_config(config, graph)
         # If it succeeds, graph should be valid (may have 0 nodes)
         assert graph is not None
     except Exception:
@@ -251,18 +243,14 @@ def test_save_empty_pipeline(node_registry, tmp_path):
     """Test saving a pipeline with no nodes."""
     from NodeGraphQt import NodeGraph
 
-    config = {
-        "metadata": {"name": "Empty Pipeline"},
-        "nodes": [],
-        "connections": []
-    }
+    config = {"metadata": {"name": "Empty Pipeline"}, "nodes": [], "connections": []}
 
     serializer = PipelineSerializer(node_registry)
     graph = NodeGraph()
 
     # Create empty graph (may not be possible with all implementations)
     try:
-        metadata = serializer.from_config(config, graph)
+        _metadata = serializer.from_config(config, graph)
 
         output_file = tmp_path / "empty_pipeline.yaml"
         serializer.to_yaml_file(graph, output_file)
@@ -281,7 +269,7 @@ def test_pipeline_node_positions(sample_pipeline_config, node_registry):
     serializer = PipelineSerializer(node_registry)
     graph = NodeGraph()
 
-    metadata = serializer.from_config(sample_pipeline_config, graph)
+    _metadata = serializer.from_config(sample_pipeline_config, graph)
 
     # Nodes should have positions (auto-layout or from config)
     for node in graph.all_nodes():
@@ -297,7 +285,7 @@ def test_pipeline_connection_format(sample_pipeline_config, node_registry):
     serializer = PipelineSerializer(node_registry)
     graph = NodeGraph()
 
-    metadata = serializer.from_config(sample_pipeline_config, graph)
+    _metadata = serializer.from_config(sample_pipeline_config, graph)
     output_config = serializer.to_config(graph)
 
     # Connections should be in dict format with "from" and "to" keys
@@ -318,17 +306,17 @@ def test_pipeline_hyperparameter_preservation(node_registry, tmp_path):
             {
                 "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {"min": 0.0, "max": 1.0}
+                "params": {"min": 0.0, "max": 1.0},
             }
         ],
-        "connections": []
+        "connections": [],
     }
 
     serializer = PipelineSerializer(node_registry)
     graph = NodeGraph()
 
     # Load and save
-    metadata = serializer.from_config(config, graph)
+    _metadata = serializer.from_config(config, graph)
     output_config = serializer.to_config(graph)
 
     # Hyperparameters should be in output
@@ -346,13 +334,13 @@ def test_multiple_pipelines_same_serializer(sample_pipeline_config, node_registr
 
     # Load first pipeline
     graph1 = NodeGraph()
-    metadata1 = serializer.from_config(sample_pipeline_config, graph1)
+    _metadata1 = serializer.from_config(sample_pipeline_config, graph1)
     file1 = tmp_path / "pipeline1.yaml"
     serializer.to_yaml_file(graph1, file1)
 
     # Load second pipeline
     graph2 = NodeGraph()
-    metadata2 = serializer.from_config(sample_pipeline_config, graph2)
+    _metadata2 = serializer.from_config(sample_pipeline_config, graph2)
     file2 = tmp_path / "pipeline2.yaml"
     serializer.to_yaml_file(graph2, file2)
 
@@ -368,10 +356,10 @@ def test_pipeline_with_special_characters_in_name(node_registry, tmp_path):
     config = {
         "metadata": {
             "name": "Test Pipeline (v1.0) - α β γ",
-            "description": "Description with special chars: é ñ ü"
+            "description": "Description with special chars: é ñ ü",
         },
         "nodes": [],
-        "connections": []
+        "connections": [],
     }
 
     serializer = PipelineSerializer(node_registry)
@@ -379,7 +367,7 @@ def test_pipeline_with_special_characters_in_name(node_registry, tmp_path):
 
     # Should handle special characters
     try:
-        metadata = serializer.from_config(config, graph)
+        _metadata = serializer.from_config(config, graph)
         output_file = tmp_path / "special_chars.yaml"
         serializer.to_yaml_file(graph, output_file)
 
@@ -401,15 +389,11 @@ def test_pipeline_serializer_with_empty_registry(tmp_path):
     serializer = PipelineSerializer(empty_registry)
     graph = NodeGraph()
 
-    config = {
-        "metadata": {"name": "Test"},
-        "nodes": [],
-        "connections": []
-    }
+    config = {"metadata": {"name": "Test"}, "nodes": [], "connections": []}
 
     # Should not crash with empty registry
     try:
-        metadata = serializer.from_config(config, graph)
+        _metadata = serializer.from_config(config, graph)
         assert graph is not None
     except Exception:
         # May require non-empty registry

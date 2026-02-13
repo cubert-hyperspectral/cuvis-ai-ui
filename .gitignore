@@ -53,6 +53,13 @@ cuvis_ai_ui/grpc/v1/*_pb2_grpc.py
 cuvis_ai_ui/grpc/v1/*_pb2.pyi
 cuvis_ai_ui/grpc/v1/*_pb2_grpc.pyi
 
+# Installer / PyInstaller build outputs
+dist/
+build/
+installer/Output/
+installer/logo.ico
+installer/run_iscc.bat
+
 # OS
 .DS_Store
 Thumbs.db

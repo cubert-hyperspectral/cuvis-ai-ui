@@ -75,7 +75,7 @@ class NodePaletteItem(QTreeWidgetItem):
                     lines.append(f"  - {name}: {dtype}{opt_str}")
                 elif isinstance(spec, PortSpec):
                     opt_str = " (opt)" if spec.optional else ""
-                    lines.append(f"  - {spec.name}: {spec.dtype}{opt_str}")
+                    lines.append(f"  - {spec.dtype}{opt_str}")
 
         # Output specs
         output_specs = info.get("output_specs", [])
@@ -87,7 +87,7 @@ class NodePaletteItem(QTreeWidgetItem):
                     dtype = spec.get("dtype", "any")
                     lines.append(f"  - {name}: {dtype}")
                 elif isinstance(spec, PortSpec):
-                    lines.append(f"  - {spec.name}: {spec.dtype}")
+                    lines.append(f"  - {spec.dtype}")
 
         # Source info
         source = info.get("source", "")
@@ -196,9 +196,7 @@ class NodePalette(QWidget):
             # Create category item
             cat_item = QTreeWidgetItem(self._tree)
             cat_item.setText(0, f"{category} ({len(nodes)})")
-            cat_item.setFlags(
-                cat_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled
-            )
+            cat_item.setFlags(cat_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
 
             # Add node items
             for node_info in sorted(nodes, key=lambda n: n.get("class_name", "")):
@@ -264,9 +262,7 @@ class NodePalette(QWidget):
         self.refresh_requested.emit()
         self._populate_tree()
 
-    def _on_item_double_clicked(
-        self, item: QTreeWidgetItem, column: int
-    ) -> None:
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         """Handle item double-click.
 
         Args:

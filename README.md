@@ -1,172 +1,80 @@
-# cuvis-ai-ui
+# Cuvis.AI UI
 
-Interactive pipeline visualization tool for cuvis-ai-core.
+[![CI Status](https://github.com/cubert-hyperspectral/cuvis-ai-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/cubert-hyperspectral/cuvis-ai-ui/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/cubert-hyperspectral/cuvis-ai-ui/branch/main/graph/badge.svg)](https://codecov.io/gh/cubert-hyperspectral/cuvis-ai-ui)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+
+Visual pipeline editor for [cuvis-ai](https://github.com/cubert-hyperspectral/cuvis-ai). Build, edit, and manage hyperspectral processing pipelines through a drag-and-drop interface connected to a cuvis-ai-core gRPC server.
 
 ## Features
 
-- Visual pipeline editor (drag-and-drop)
-- Type-safe node connections with port validation
-- Load and edit existing pipeline YAML files
-- Save pipelines back to YAML format
-- Integration with cuvis-ai-core via gRPC
+- Drag-and-drop pipeline editor with type-safe node connections
+- Node palette with search and categorized browsing
+- Property editor with dynamic parameter forms
+- Load/save pipeline YAML files
+- Plugin manager for extending available nodes
+- Server connection dialog (local auto-start or remote)
 
-## Requirements
+## Quick Start
+
+### Requirements
 
 - Python 3.11
-- cuvis-ai-core gRPC server running
-- uv (package manager)
+- [uv](https://docs.astral.sh/uv/) package manager
+- [cuvis-ai-core](https://github.com/cubert-hyperspectral/cuvis-ai-core) gRPC server
 
-## Installation
+### Install and Run
 
 ```bash
-# Clone repository
-git clone <repo-url>
+git clone https://github.com/cubert-hyperspectral/cuvis-ai-ui.git
 cd cuvis-ai-ui
-
-# Install dependencies
-uv sync
-
-# Generate gRPC stubs (if not already generated)
-uv run python -m grpc_tools.protoc \
-    --proto_path=proto \
-    --python_out=cuvis_ai_ui/grpc \
-    --grpc_python_out=cuvis_ai_ui/grpc \
-    --pyi_out=cuvis_ai_ui/grpc \
-    proto/cuvis_ai_core/grpc/v1/cuvis_ai_core.proto
+uv sync --all-exrtas
 ```
 
-## Usage
-
-### Start cuvis-ai-core server
+Start the [cuvis-ai-core](https://github.com/cubert-hyperspectral/cuvis-ai-core) gRPC server (in a separate terminal):
 
 ```bash
 cd path/to/cuvis-ai-core
 uv run python -m cuvis_ai_core.grpc.production_server
 ```
 
-### Launch visualizer
+Launch the UI:
 
 ```bash
 uv run cuvis-ui
 ```
 
-Or for development:
+## Windows Installer
 
-```bash
-uv run python -m cuvis_ai_ui.main
+A standalone Windows installer can be built that bundles both the UI and the gRPC server (including PyTorch CUDA 12.8) into a single setup executable.
+
+### Prerequisites
+
+- [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+- cuvis-ai-core venv with PyTorch CUDA 12.8
+
+### Build
+
+```cmd
+installer\build.bat
 ```
 
-## Development
+Output: `installer\Output\cuvis-ai-ui-setup-<version>.exe`
 
-### Running tests
+The installed application auto-starts a local gRPC server. Users can also configure a remote server via **Tools > Connect to Server**.
 
-```bash
-# All tests
-uv run pytest
+## Configuration
 
-# Unit tests only
-uv run pytest tests/unit -v
+Settings are stored in the platform-specific app config directory:
 
-# Integration tests (requires server running)
-uv run pytest tests/integration -v
+| Setting | File | Description |
+|---------|------|-------------|
+| Plugins | `plugin_settings.json` | Plugin catalog paths and enabled state |
+| Connection | `connection.json` | Server mode (local/remote), host, port |
 
-# With coverage
-uv run pytest --cov=cuvis_ai_ui --cov-report=html
-```
-
-### Code quality
-
-```bash
-# Lint
-uv run ruff check .
-
-# Format
-uv run ruff format .
-
-# Type check
-uv run mypy cuvis_ai_ui
-```
-
-## Project Structure
-
-```
-cuvis-ai-ui/
-├── cuvis_ai_ui/
-│   ├── __init__.py
-│   ├── main.py                    # CLI entry point
-│   ├── main_window.py             # Qt MainWindow
-│   ├── grpc/
-│   │   ├── __init__.py
-│   │   ├── v1/                    # Generated protobuf stubs
-│   │   └── client.py              # CuvisAIClient wrapper
-│   ├── adapters/
-│   │   ├── node_adapter.py        # CuvisNodeAdapter (NodeGraphQt wrapper)
-│   │   ├── pipeline_serializer.py # YAML ↔ NodeGraphQt converter
-│   │   └── port_mapper.py         # PortSpec → NodeGraphQt port mapping
-│   └── widgets/
-│       ├── node_palette.py        # Node catalog (Phase 2)
-│       ├── property_editor.py     # Parameter editor (Phase 2)
-│       └── plugin_manager.py      # Plugin loader (Phase 2)
-├── tests/
-│   ├── unit/                      # Pure logic tests
-│   ├── integration/               # gRPC integration tests
-│   └── manual/                    # Manual test workflows
-├── docs/
-├── proto/                         # Proto files from cuvis-ai-core
-└── pyproject.toml
-```
-
-## Implementation Status
-
-### ✅ Phase 1: Core Infrastructure (Complete)
-- [x] Project setup with uv
-- [x] gRPC client implementation ([client.py](cuvis_ai_ui/grpc/client.py))
-- [x] Connection management with retry logic
-- [x] Session lifecycle management
-- [x] Node discovery API
-- [x] Port mapper with type validation ([port_mapper.py](cuvis_ai_ui/adapters/port_mapper.py))
-- [x] Node adapter for NodeGraphQt ([node_adapter.py](cuvis_ai_ui/adapters/node_adapter.py))
-- [x] Pipeline serializer YAML ↔ Graph ([pipeline_serializer.py](cuvis_ai_ui/adapters/pipeline_serializer.py))
-- [x] Qt MainWindow with NodeGraphQt canvas ([main_window.py](cuvis_ai_ui/main_window.py))
-
-### ✅ Phase 2: Enhanced UX & Discovery (Complete)
-- [x] Node palette with search and drag-drop ([node_palette.py](cuvis_ai_ui/widgets/node_palette.py))
-- [x] Property editor with dynamic forms ([property_editor.py](cuvis_ai_ui/widgets/property_editor.py))
-- [x] Plugin manager dialog ([plugin_manager.py](cuvis_ai_ui/widgets/plugin_manager.py))
-- [x] Session management dialog
-
-### ⏳ Phase 3: Execution & Results (Pending)
-- [ ] Inference input configuration
-- [ ] Training workflow UI
-- [ ] Result visualization
-- [ ] Real-time progress display
-
-**Overall Progress**: Phase 2 Complete (66%)
-
-## Testing
-
-### Quick Test (30 seconds)
-See [QUICKSTART.md](QUICKSTART.md) for immediate testing instructions.
-
-### Comprehensive Testing
-See [TESTING.md](TESTING.md) for detailed test scenarios including:
-- Connection and session management
-- Node discovery
-- Pipeline operations
-- Error handling
-- Troubleshooting guide
-
-## Documentation
-
-- **Quick Start**: [QUICKSTART.md](QUICKSTART.md) - Test current implementation
-- **Testing Guide**: [TESTING.md](TESTING.md) - Comprehensive test scenarios
-- **Implementation Plan**: [C:\Users\nima.ghorbani\.claude\plans\functional-greeting-pond.md](C:\Users\nima.ghorbani\.claude\plans\functional-greeting-pond.md)
-- **Blueprint**: [D:\code-repos\dev-docs\ALL_5170\ALL_5170_cuvis_ai_nodegraphqt_blueprint.md](D:\code-repos\dev-docs\ALL_5170\ALL_5170_cuvis_ai_nodegraphqt_blueprint.md)
+On Windows: `%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\`
 
 ## License
 
-Apache License 2.0
-
-## Authors
-
-Cubert GmbH - cuvis.ai@cubert-gmbh.com
+Apache License 2.0 - [Cubert GmbH](https://cubert-gmbh.com)

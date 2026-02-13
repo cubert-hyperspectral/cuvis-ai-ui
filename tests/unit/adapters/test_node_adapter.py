@@ -1,7 +1,6 @@
 """Tests for node adapter and node registry."""
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 from cuvis_ai_ui.adapters.node_adapter import (
     CuvisNodeAdapter,
@@ -12,7 +11,7 @@ from cuvis_ai_ui.adapters.node_adapter import (
 )
 
 
-def test_cuvis_node_adapter_init():
+def test_cuvis_node_adapter_init(qapp):
     """Test CuvisNodeAdapter initialization."""
     node = CuvisNodeAdapter()
 
@@ -26,7 +25,7 @@ def test_cuvis_node_adapter_init():
     assert node._cuvis_output_specs == {}
 
 
-def test_cuvis_node_adapter_properties():
+def test_cuvis_node_adapter_properties(qapp):
     """Test CuvisNodeAdapter properties."""
     node = CuvisNodeAdapter()
 
@@ -43,7 +42,7 @@ def test_cuvis_node_adapter_properties():
     assert node.cuvis_plugin_name == "test_plugin"
 
 
-def test_cuvis_node_adapter_hparams_property():
+def test_cuvis_node_adapter_hparams_property(qapp):
     """Test CuvisNodeAdapter hparams property getter and setter."""
     node = CuvisNodeAdapter()
 
@@ -55,7 +54,7 @@ def test_cuvis_node_adapter_hparams_property():
     assert node.cuvis_hparams["param2"] == 42
 
 
-def test_cuvis_node_adapter_execution_stages_property():
+def test_cuvis_node_adapter_execution_stages_property(qapp):
     """Test CuvisNodeAdapter execution_stages property."""
     node = CuvisNodeAdapter()
 
@@ -67,7 +66,7 @@ def test_cuvis_node_adapter_execution_stages_property():
     assert node.cuvis_execution_stages == {"train", "inference"}
 
 
-def test_configure_from_node_info(sample_node_info):
+def test_configure_from_node_info(qapp, sample_node_info):
     """Test configuring node from node info dictionary."""
     node = CuvisNodeAdapter()
     node.configure_from_node_info(sample_node_info)
@@ -79,7 +78,7 @@ def test_configure_from_node_info(sample_node_info):
     assert len(node._cuvis_output_specs) == 1
 
 
-def test_get_category_from_path():
+def test_get_category_from_path(qapp):
     """Test category inference from class path."""
     node = CuvisNodeAdapter()
 
@@ -100,7 +99,7 @@ def test_get_category_from_path():
     assert node._get_category_from_path() == "unknown"
 
 
-def test_get_category_from_path_fallback():
+def test_get_category_from_path_fallback(qapp):
     """Test category fallback for non-standard paths."""
     node = CuvisNodeAdapter()
 
@@ -110,7 +109,7 @@ def test_get_category_from_path_fallback():
     assert category == "utility"  # Default fallback
 
 
-def test_get_cuvis_config_basic():
+def test_get_cuvis_config_basic(qapp):
     """Test exporting node configuration."""
     node = CuvisNodeAdapter()
     node._cuvis_class_path = "cuvis_ai.node.test.TestNode"
@@ -123,7 +122,7 @@ def test_get_cuvis_config_basic():
     assert "hparams" not in config  # Empty hparams not included
 
 
-def test_get_cuvis_config_with_hparams():
+def test_get_cuvis_config_with_hparams(qapp):
     """Test exporting node configuration with hyperparameters."""
     node = CuvisNodeAdapter()
     node._cuvis_class_path = "cuvis_ai.node.test.TestNode"
@@ -136,7 +135,7 @@ def test_get_cuvis_config_with_hparams():
     assert config["hparams"]["param2"] == 42
 
 
-def test_get_cuvis_config_with_execution_stages():
+def test_get_cuvis_config_with_execution_stages(qapp):
     """Test exporting node configuration with custom execution stages."""
     node = CuvisNodeAdapter()
     node._cuvis_class_path = "cuvis_ai.node.test.TestNode"
@@ -149,7 +148,7 @@ def test_get_cuvis_config_with_execution_stages():
     assert set(config["execution_stages"]) == {"train", "inference"}
 
 
-def test_get_cuvis_config_default_execution_stages():
+def test_get_cuvis_config_default_execution_stages(qapp):
     """Test that default execution stages are not included in config."""
     node = CuvisNodeAdapter()
     node._cuvis_class_path = "cuvis_ai.node.test.TestNode"
@@ -161,7 +160,7 @@ def test_get_cuvis_config_default_execution_stages():
     assert "execution_stages" not in config  # Default not exported
 
 
-def test_update_hparam():
+def test_update_hparam(qapp):
     """Test updating a single hyperparameter."""
     node = CuvisNodeAdapter()
 
@@ -173,7 +172,7 @@ def test_update_hparam():
     assert node._cuvis_hparams["param1"] == "new_value"
 
 
-def test_get_hparam():
+def test_get_hparam(qapp):
     """Test getting hyperparameter values."""
     node = CuvisNodeAdapter()
     node._cuvis_hparams = {"param1": "value1", "param2": 42}
@@ -189,7 +188,7 @@ def test_get_hparam():
     assert node.get_hparam("nonexistent") is None
 
 
-def test_create_node_class(sample_node_info):
+def test_create_node_class(qapp, sample_node_info):
     """Test dynamically creating a node class."""
     node_class = create_node_class(sample_node_info)
 
@@ -198,7 +197,7 @@ def test_create_node_class(sample_node_info):
     assert "_" in node_class.__identifier__  # Path converted to underscores
 
 
-def test_create_node_class_auto_configures():
+def test_create_node_class_auto_configures(qapp):
     """Test that created node classes auto-configure on init."""
     node_info = {
         "class_name": "TestNode",

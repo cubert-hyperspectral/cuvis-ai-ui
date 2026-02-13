@@ -10,7 +10,7 @@ which now includes comprehensive hyperspectral-specific type colors.
 
 from typing import Any
 
-from cuvis_ai_schemas.extensions.ui import DTYPE_COLORS, PortDisplaySpec
+from cuvis_ai_schemas.extensions.ui import PortDisplaySpec
 from cuvis_ai_schemas.pipeline.ports import PortSpec
 from NodeGraphQt import BaseNode
 

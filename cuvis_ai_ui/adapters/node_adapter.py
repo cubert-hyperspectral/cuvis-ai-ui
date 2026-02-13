@@ -16,39 +16,32 @@ from .port_helpers import create_input_port, create_output_port
 # Node category colors (background colors for node headers)
 CATEGORY_COLORS: dict[str, tuple[int, int, int, int]] = {
     # Data loading/saving nodes
-    "data": (80, 120, 180, 255),        # Blue
+    "data": (80, 120, 180, 255),  # Blue
     "loader": (80, 120, 180, 255),
-
     # Preprocessing/normalization
     "normalization": (180, 120, 80, 255),  # Orange
     "preprocessing": (180, 120, 80, 255),
-
     # Feature extraction
-    "feature": (120, 180, 80, 255),     # Green
+    "feature": (120, 180, 80, 255),  # Green
     "extraction": (120, 180, 80, 255),
     "band": (120, 180, 80, 255),
     "selector": (120, 180, 80, 255),
-
     # Anomaly detection (must be before "detector" to match first)
-    "anomaly": (200, 60, 180, 255),     # Magenta
-
+    "anomaly": (200, 60, 180, 255),  # Magenta
     # Models/ML
-    "model": (180, 80, 120, 255),       # Red/Pink
+    "model": (180, 80, 120, 255),  # Red/Pink
     "network": (180, 80, 120, 255),
     "classifier": (180, 80, 120, 255),
     "detector": (180, 80, 120, 255),
-
     # Loss functions
-    "loss": (120, 80, 180, 255),        # Purple
+    "loss": (120, 80, 180, 255),  # Purple
     "criterion": (120, 80, 180, 255),
-
     # Decision/thresholding nodes
-    "decider": (220, 180, 60, 255),     # Gold/Yellow
-
+    "decider": (220, 180, 60, 255),  # Gold/Yellow
     # Utility nodes
-    "utility": (150, 150, 150, 255),    # Gray
+    "utility": (150, 150, 150, 255),  # Gray
     "transform": (150, 150, 150, 255),
-    "pca": (100, 180, 160, 255),        # Teal
+    "pca": (100, 180, 160, 255),  # Teal
 }
 
 DEFAULT_NODE_COLOR = (100, 100, 100, 255)  # Default gray
@@ -172,8 +165,11 @@ class CuvisNodeAdapter(BaseNode):
                     shape = tuple(shape_data)
                 elif isinstance(shape_data, str):
                     # Parse string representation like "[-1, -1]"
-                    shape = tuple(int(x.strip()) if x.strip().lstrip('-').isdigit() else x.strip()
-                                 for x in shape_data.strip('[]').split(',') if x.strip())
+                    shape = tuple(
+                        int(x.strip()) if x.strip().lstrip("-").isdigit() else x.strip()
+                        for x in shape_data.strip("[]").split(",")
+                        if x.strip()
+                    )
                 else:
                     shape = shape_data if isinstance(shape_data, tuple) else ()
 
@@ -181,7 +177,7 @@ class CuvisNodeAdapter(BaseNode):
                     dtype=spec_data.get("dtype", "any"),
                     shape=shape,
                     description=spec_data.get("description", ""),
-                    optional=spec_data.get("optional", False)
+                    optional=spec_data.get("optional", False),
                 )
             else:
                 # Already a PortSpec object, need to get name from context
@@ -202,8 +198,11 @@ class CuvisNodeAdapter(BaseNode):
                     shape = tuple(shape_data)
                 elif isinstance(shape_data, str):
                     # Parse string representation like "[-1, -1]"
-                    shape = tuple(int(x.strip()) if x.strip().lstrip('-').isdigit() else x.strip()
-                                 for x in shape_data.strip('[]').split(',') if x.strip())
+                    shape = tuple(
+                        int(x.strip()) if x.strip().lstrip("-").isdigit() else x.strip()
+                        for x in shape_data.strip("[]").split(",")
+                        if x.strip()
+                    )
                 else:
                     shape = shape_data if isinstance(shape_data, tuple) else ()
 
@@ -211,7 +210,7 @@ class CuvisNodeAdapter(BaseNode):
                     dtype=spec_data.get("dtype", "any"),
                     shape=shape,
                     description=spec_data.get("description", ""),
-                    optional=spec_data.get("optional", False)
+                    optional=spec_data.get("optional", False),
                 )
             else:
                 # Already a PortSpec object, need to get name from context
@@ -325,7 +324,7 @@ def create_node_class(node_info: dict[str, Any]) -> type[BaseNode]:
             "__identifier__": identifier,  # Already includes full path as underscores
             "NODE_NAME": class_name,
             "_node_info": node_info,
-        }
+        },
     )
 
     # Override __init__ to auto-configure
@@ -413,10 +412,7 @@ class NodeRegistry:
         Returns:
             List of matching node info dictionaries
         """
-        return [
-            info for info in self._nodes.values()
-            if info.get("source") == source
-        ]
+        return [info for info in self._nodes.values() if info.get("source") == source]
 
     def get_nodes_by_plugin(self, plugin_name: str) -> list[dict[str, Any]]:
         """Get nodes from a specific plugin.
@@ -427,10 +423,7 @@ class NodeRegistry:
         Returns:
             List of matching node info dictionaries
         """
-        return [
-            info for info in self._nodes.values()
-            if info.get("plugin_name") == plugin_name
-        ]
+        return [info for info in self._nodes.values() if info.get("plugin_name") == plugin_name]
 
     def get_nodes_by_category(self) -> dict[str, list[dict[str, Any]]]:
         """Group nodes by category.

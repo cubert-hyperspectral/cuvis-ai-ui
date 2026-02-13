@@ -8,7 +8,6 @@ This script tests the pipeline metadata viewing and editing capabilities:
 """
 
 import sys
-from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
@@ -18,7 +17,7 @@ from cuvis_ai_ui.widgets.pipeline_info_dialog import PipelineInfoDialog
 
 def test_pipeline_info_dialog():
     """Test the pipeline info dialog standalone."""
-    app = QApplication(sys.argv)
+    _app = QApplication(sys.argv)
 
     # Test with sample metadata
     sample_metadata = {
@@ -39,7 +38,7 @@ def test_pipeline_info_dialog():
 
     # Create and show dialog
     dialog = PipelineInfoDialog(sample_metadata)
-    
+
     print("\n✓ Dialog created successfully")
     print("✓ Opening dialog...")
     print("\nInstructions:")
@@ -56,7 +55,7 @@ def test_pipeline_info_dialog():
         print("\nUpdated metadata:")
         for key, value in updated_metadata.items():
             print(f"  {key}: {value}")
-        
+
         # Check what changed
         changes = []
         for key in set(sample_metadata.keys()) | set(updated_metadata.keys()):
@@ -64,7 +63,7 @@ def test_pipeline_info_dialog():
             new_val = updated_metadata.get(key)
             if old_val != new_val:
                 changes.append(f"  {key}: {old_val} → {new_val}")
-        
+
         if changes:
             print("\nChanges detected:")
             for change in changes:
@@ -89,7 +88,7 @@ def test_main_window_integration():
     print("\nCreating main window...")
 
     window = MainWindow()
-    
+
     # Set some initial metadata
     window._metadata = {
         "name": "Integration Test Pipeline",

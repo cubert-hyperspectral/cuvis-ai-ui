@@ -11,13 +11,12 @@ Qt widgets for different parameter types:
 """
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -149,9 +148,7 @@ class PropertyEditor(QWidget):
 
         # Add name field (always present)
         name_edit = QLineEdit(node.name())
-        name_edit.textChanged.connect(
-            lambda text: self._on_name_changed(text)
-        )
+        name_edit.textChanged.connect(lambda text: self._on_name_changed(text))
         self._properties_layout.addRow("Name:", name_edit)
         self._widgets["__name__"] = name_edit
 
@@ -207,9 +204,7 @@ class PropertyEditor(QWidget):
         spinbox = QSpinBox()
         spinbox.setRange(-999999999, 999999999)
         spinbox.setValue(value)
-        spinbox.valueChanged.connect(
-            lambda val: self._on_value_changed(key, val)
-        )
+        spinbox.valueChanged.connect(lambda val: self._on_value_changed(key, val))
         return spinbox
 
     def _create_float_widget(self, key: str, value: float) -> QDoubleSpinBox:
@@ -218,17 +213,13 @@ class PropertyEditor(QWidget):
         spinbox.setRange(-1e10, 1e10)
         spinbox.setDecimals(6)
         spinbox.setValue(value)
-        spinbox.valueChanged.connect(
-            lambda val: self._on_value_changed(key, val)
-        )
+        spinbox.valueChanged.connect(lambda val: self._on_value_changed(key, val))
         return spinbox
 
     def _create_string_widget(self, key: str, value: str) -> QLineEdit:
         """Create a line edit for string values."""
         edit = QLineEdit(value)
-        edit.textChanged.connect(
-            lambda text: self._on_value_changed(key, text)
-        )
+        edit.textChanged.connect(lambda text: self._on_value_changed(key, text))
         return edit
 
     def _create_path_widget(self, key: str, value: Path | str) -> QWidget:
@@ -246,9 +237,7 @@ class PropertyEditor(QWidget):
 
         browse_btn = QPushButton("...")
         browse_btn.setMaximumWidth(30)
-        browse_btn.clicked.connect(
-            lambda: self._browse_path(edit)
-        )
+        browse_btn.clicked.connect(lambda: self._browse_path(edit))
         layout.addWidget(browse_btn)
 
         return widget
@@ -258,20 +247,17 @@ class PropertyEditor(QWidget):
         text = ", ".join(str(v) for v in value)
         edit = QLineEdit(text)
         edit.setPlaceholderText("Comma-separated values")
-        edit.textChanged.connect(
-            lambda t: self._on_value_changed(key, self._parse_list(t))
-        )
+        edit.textChanged.connect(lambda t: self._on_value_changed(key, self._parse_list(t)))
         return edit
 
     def _create_dict_widget(self, key: str, value: dict) -> QLineEdit:
         """Create a line edit for dict values (as JSON-like string)."""
         import json
+
         text = json.dumps(value)
         edit = QLineEdit(text)
-        edit.setPlaceholderText("JSON format: {\"key\": value}")
-        edit.textChanged.connect(
-            lambda t: self._on_value_changed(key, self._parse_dict(t))
-        )
+        edit.setPlaceholderText('JSON format: {"key": value}')
+        edit.textChanged.connect(lambda t: self._on_value_changed(key, self._parse_dict(t)))
         return edit
 
     def _parse_list(self, text: str) -> list:
@@ -294,6 +280,7 @@ class PropertyEditor(QWidget):
     def _parse_dict(self, text: str) -> dict:
         """Parse JSON-like text into a dict."""
         import json
+
         try:
             return json.loads(text)
         except json.JSONDecodeError:
@@ -305,9 +292,7 @@ class PropertyEditor(QWidget):
         Args:
             edit: Line edit to update
         """
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select File", edit.text()
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Select File", edit.text())
         if path:
             edit.setText(path)
 
@@ -426,10 +411,7 @@ class ExecutionStagesEditor(QWidget):
         Returns:
             Set of selected stage names
         """
-        return {
-            stage for stage, cb in self._checkboxes.items()
-            if cb.isChecked()
-        }
+        return {stage for stage, cb in self._checkboxes.items() if cb.isChecked()}
 
     def set_stages(self, stages: set[str]) -> None:
         """Set the selected stages.

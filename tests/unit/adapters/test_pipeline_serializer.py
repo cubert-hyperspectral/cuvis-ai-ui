@@ -1,8 +1,7 @@
 """Tests for pipeline serializer (YAML ↔ NodeGraphQt conversion)."""
 
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 from NodeGraphQt import NodeGraph
 
 from cuvis_ai_ui.adapters.pipeline_serializer import PipelineSerializer
@@ -156,11 +155,13 @@ def test_to_config_with_nodes(pipeline_serializer, mock_graph):
     # Create mock node with cuvis config
     mock_node = Mock(spec=CuvisNodeAdapter)
     mock_node.name = Mock(return_value="test_node")
-    mock_node.get_cuvis_config = Mock(return_value={
-        "class": "cuvis_ai.node.test.TestNode",
-        "name": "test_node",
-        "params": {"param1": "value1"}
-    })
+    mock_node.get_cuvis_config = Mock(
+        return_value={
+            "class": "cuvis_ai.node.test.TestNode",
+            "name": "test_node",
+            "params": {"param1": "value1"},
+        }
+    )
     mock_node.output_ports = Mock(return_value=[])
 
     mock_graph.all_nodes.return_value = [mock_node]
@@ -169,7 +170,7 @@ def test_to_config_with_nodes(pipeline_serializer, mock_graph):
 
     assert len(config["nodes"]) == 1
     assert config["nodes"][0]["class"] == "cuvis_ai.node.test.TestNode"
-    assert config["nodes"][0]["name"] == "test_node"
+    assert config["nodes"][0]["id"] == "test_node"
 
 
 def test_to_config_with_connections(pipeline_serializer, mock_graph):
@@ -181,11 +182,9 @@ def test_to_config_with_connections(pipeline_serializer, mock_graph):
 
     mock_source = Mock(spec=CuvisNodeAdapter)
     mock_source.name = Mock(return_value="source")
-    mock_source.get_cuvis_config = Mock(return_value={
-        "class": "cuvis_ai.node.Source",
-        "name": "source",
-        "params": {}
-    })
+    mock_source.get_cuvis_config = Mock(
+        return_value={"class": "cuvis_ai.node.Source", "name": "source", "params": {}}
+    )
     mock_source.output_ports = Mock(return_value=[mock_output_port])
 
     mock_graph.all_nodes.return_value = [mock_source]
@@ -219,6 +218,7 @@ def test_to_yaml_file_writes_valid_yaml(pipeline_serializer, mock_graph, tmp_pat
 
     # Read and verify content
     import yaml
+
     with open(output_path, "r") as f:
         content = yaml.safe_load(f)
 
@@ -303,14 +303,8 @@ def test_load_warnings_for_missing_nodes(pipeline_serializer, mock_graph):
     """Test that warnings are generated for missing node classes."""
     config = {
         "metadata": {"name": "Test"},
-        "nodes": [
-            {
-                "class": "cuvis_ai.node.NonExistent",
-                "name": "missing",
-                "params": {}
-            }
-        ],
-        "connections": []
+        "nodes": [{"class": "cuvis_ai.node.NonExistent", "name": "missing", "params": {}}],
+        "connections": [],
     }
 
     # Mock create_node to return a placeholder
@@ -346,8 +340,7 @@ def test_round_trip_validation_identical(pipeline_serializer, sample_pipeline_co
 
     # For identical configs (both empty), should be valid
     is_valid, differences = pipeline_serializer.validate_round_trip(
-        {"metadata": {}, "nodes": [], "connections": []},
-        mock_graph
+        {"metadata": {}, "nodes": [], "connections": []}, mock_graph
     )
 
     assert is_valid
@@ -359,15 +352,12 @@ def test_round_trip_validation_missing_node(pipeline_serializer, mock_graph):
     original_config = {
         "metadata": {},
         "nodes": [{"class": "TestNode", "name": "test", "params": {}}],
-        "connections": []
+        "connections": [],
     }
 
     mock_graph.all_nodes.return_value = []  # Empty graph
 
-    is_valid, differences = pipeline_serializer.validate_round_trip(
-        original_config,
-        mock_graph
-    )
+    is_valid, differences = pipeline_serializer.validate_round_trip(original_config, mock_graph)
 
     assert not is_valid
     assert any("Missing node" in d for d in differences)
