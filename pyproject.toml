@@ -38,6 +38,8 @@ dev = [
     "ruff>=0.14.11",
     "ipdb>=0.13.13",
     "mypy>=1.8.0",
+    "pyinstaller>=6.0.0",
+    "Pillow>=10.0.0",
 ]
 
 viz = [

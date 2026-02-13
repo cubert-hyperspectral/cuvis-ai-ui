@@ -14,9 +14,11 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from .adapters import enrich_node_list
 from .grpc.client import CuvisAIClient
 from .main_window import MainWindow
-from .plugin_settings import (
+from .server import ServerManager
+from .settings import (
     build_manifest,
     get_plugin_store_path,
+    load_connection_settings,
     load_plugin_entries,
     write_manifest_temp,
 )
@@ -36,37 +38,59 @@ def main() -> None:
 
     # Create Qt application
     app = QApplication(sys.argv)
-    app.setApplicationName("cuvis-ai Pipeline Visualizer")
+    app.setApplicationName("Cuvis.AI UI")
     app.setOrganizationName("Cubert GmbH")
 
     icon_path = Path(__file__).parent / "resources" / "icons" / "logo.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    # Load connection settings
+    conn = load_connection_settings()
+    server_manager: ServerManager | None = None
+
+    # Auto-start local server if configured (only in frozen/installed builds)
+    auto_start = conn.get("auto_start", True) and getattr(sys, "frozen", False)
+    if conn["mode"] == "local" and auto_start:
+        server_manager = ServerManager(port=conn["port"])
+        server_manager.start()
+        if not server_manager.wait_ready(timeout=30):
+            error_detail = server_manager.last_error
+            detail_text = f"\n\nServer output:\n{error_detail}" if error_detail else ""
+            QMessageBox.warning(
+                None,
+                "Server Start Warning",
+                "The local gRPC server did not become ready in time.\n\n"
+                "You can still view and edit pipelines, but cannot:\n"
+                "- Load node catalog from server\n"
+                "- Run inference or training\n\n"
+                f"Check connection settings via Tools → Connect to Server.{detail_text}"
+            )
+
     # Connect to gRPC server
+    host = "localhost" if conn["mode"] == "local" else conn["host"]
+    port = conn["port"]
     client = None
     try:
-        client = CuvisAIClient()
+        client = CuvisAIClient(host=host, port=port)
         client.connect()
-        logger.info(f"Connected to gRPC server, session: {client.session_id}")
+        logger.info(f"Connected to gRPC server at {host}:{port}, session: {client.session_id}")
     except Exception as e:
         logger.warning(f"Failed to connect to gRPC server: {e}")
-        # Show warning but continue - allow offline editing
         QMessageBox.warning(
             None,
             "Connection Warning",
-            f"Failed to connect to cuvis-ai-core gRPC server:\n{e}\n\n"
+            f"Failed to connect to cuvis-ai-core gRPC server at {host}:{port}:\n{e}\n\n"
             "You can still view and edit pipelines, but cannot:\n"
             "- Load node catalog from server\n"
             "- Run inference or training\n\n"
-            "Start the server with:\n"
-            "cd D:\\code-repos\\cuvis-ai-core\n"
-            "uv run python -m cuvis_ai_core.grpc.production_server"
+            "Check connection settings via Tools → Connect to Server."
         )
         client = None
 
     # Create main window
     window = MainWindow(client=client)
+    window.set_server_manager(server_manager)
 
     # Try to load persisted plugins if connected
     if client is not None:

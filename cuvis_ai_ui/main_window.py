@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
 
 from .adapters import NodeRegistry, PipelineSerializer
 from .grpc.client import CuvisAIClient
+from .server import ServerManager
+from .widgets.connection_dialog import ConnectionDialog
 from .widgets.pipeline_info_dialog import PipelineInfoDialog
 
 
@@ -95,6 +97,7 @@ class MainWindow(QMainWindow):
         # gRPC client
         self._client = client
         self._session_id: str | None = None
+        self._server_manager: ServerManager | None = None
 
         # Node registry for available nodes
         self._node_registry = NodeRegistry()
@@ -117,7 +120,7 @@ class MainWindow(QMainWindow):
 
     def _setup_window(self) -> None:
         """Configure the main window."""
-        self.setWindowTitle("cuvis-ai Pipeline Visualizer")
+        self.setWindowTitle("Cuvis.AI UI")
         self.setMinimumSize(1200, 800)
         self.resize(1600, 1000)
 
@@ -390,6 +393,15 @@ class MainWindow(QMainWindow):
         self._session_id = client.session_id
         self._update_connection_status(True)
 
+    @property
+    def server_manager(self) -> ServerManager | None:
+        """Get the local server manager (if any)."""
+        return self._server_manager
+
+    def set_server_manager(self, manager: ServerManager | None) -> None:
+        """Set the server manager for local server lifecycle."""
+        self._server_manager = manager
+
     # File operations
 
     def new_pipeline(self) -> None:
@@ -555,8 +567,54 @@ class MainWindow(QMainWindow):
 
     def _show_connection_dialog(self) -> None:
         """Show the server connection dialog."""
-        # This will be implemented by the plugin manager
-        self._status_bar.showMessage("Connection dialog not yet implemented", 3000)
+        dialog = ConnectionDialog(self)
+        if not dialog.exec():
+            return
+
+        settings = dialog.get_settings()
+        host = settings.get("host", "localhost")
+        port = settings.get("port", 50051)
+
+        # Stop existing local server if switching away
+        if self._server_manager is not None and settings["mode"] == "remote":
+            self._server_manager.stop()
+            self._server_manager = None
+
+        # Start local server if switching to local mode
+        if settings["mode"] == "local" and (
+            self._server_manager is None or not self._server_manager.is_running()
+        ):
+            self._server_manager = ServerManager(port=port)
+            self._server_manager.start()
+            if not self._server_manager.wait_ready(timeout=30):
+                QMessageBox.warning(
+                    self,
+                    "Server Start Warning",
+                    "The local gRPC server did not become ready in time.",
+                )
+            host = "localhost"
+
+        # Close old client
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+
+        # Reconnect
+        try:
+            self._client = CuvisAIClient(host=host, port=port)
+            self._client.connect()
+            self._session_id = self._client.session_id
+            self._update_connection_status(True)
+            self._status_bar.showMessage(f"Connected to {host}:{port}", 3000)
+            logger.info(f"Reconnected to {host}:{port}, session: {self._session_id}")
+        except Exception as e:
+            self._client = None
+            self._update_connection_status(False)
+            QMessageBox.warning(
+                self, "Connection Failed", f"Failed to connect to {host}:{port}:\n{e}"
+            )
 
     def _refresh_nodes(self) -> None:
         """Refresh the node list from the server."""
@@ -600,8 +658,8 @@ class MainWindow(QMainWindow):
         """Show the about dialog."""
         QMessageBox.about(
             self,
-            "About cuvis-ai Visualizer",
-            "cuvis-ai Pipeline Visualizer\n\n"
+            "About Cuvis.AI UI",
+            "Cuvis.AI UI\n\n"
             "A visual editor for creating and editing\n"
             "cuvis-ai ML pipelines.\n\n"
             "Built with NodeGraphQt and PySide6.",
@@ -620,7 +678,7 @@ class MainWindow(QMainWindow):
 
     def _update_title(self) -> None:
         """Update the window title."""
-        title = "cuvis-ai Pipeline Visualizer"
+        title = "Cuvis.AI UI"
         if self._current_file:
             title = f"{self._current_file.name} - {title}"
         if self._unsaved_changes:
@@ -668,3 +726,7 @@ class MainWindow(QMainWindow):
                 self._client.close()
             except Exception:
                 pass
+
+        # Stop local server
+        if self._server_manager is not None:
+            self._server_manager.stop()
