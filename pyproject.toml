@@ -78,8 +78,9 @@ Changelog = "https://github.com/cubert-hyperspectral/cuvis-ai-ui/blob/main/CHANG
 cuvis-ui = "cuvis_ai_ui.main:main"
 cuvis-ui-test = "cuvis_ai_ui.main:test_connection"
 
-[tool.uv.sources]
-cuvis-ai-schemas = { path = "../../cuvis-ai-schemas", editable = true }
+# Local development override: create uv.toml with local path if needed
+# [tool.uv.sources]
+# cuvis-ai-schemas = { path = "../../cuvis-ai-schemas", editable = true }
 
 
 [tool.setuptools.package-data]
