@@ -1,0 +1,117 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cuvis-ai-ui"
+dynamic = ["version"]
+description = "Interactive pipeline visualization tool for cuvis-ai"
+authors = [
+    {name = "Cubert GmbH", email = "cuvis.ai@cubert-gmbh.com"}
+]
+readme = "README.md"
+license = { text = "Apache License 2.0" }
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    # Node graph visualization
+    "NodeGraphQt>=0.6.0",
+    "PySide6>=6.5.0",
+    # gRPC client (matches <fv<g-core gRPC versions)
+    "grpcio>=1.56.0",
+    "protobuf>=4.25.0",
+    # Configuration and validation
+    "pyyaml>=6.0",
+    "pydantic>=2.12.5",
+    # Utilities
+    "loguru>=0.7.0",
+    "grpcio-tools>=1.76.0",
+    "cuvis-ai-schemas[proto]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.0.0",
+    "pytest-cov>=4.0.0",
+    "grpcio-tools>=1.56.0",  # For proto stub generation
+    "ruff>=0.14.11",
+    "ipdb>=0.13.13",
+    "mypy>=1.8.0",
+]
+
+viz = [
+    # Optional: For Phase 3 result visualization
+    "matplotlib>=3.0.0",
+    "numpy>=1.21.0",
+]
+
+[project.urls]
+Homepage = "https://gitlab.cubert.local/cubert/cuvis-ai-ui"
+Repository = "https://gitlab.cubert.local/cubert/cuvis-ai-ui.git"
+
+[project.scripts]
+cuvis-ui = "cuvis_ai_ui.main:main"
+cuvis-ui-test = "cuvis_ai_ui.main:test_connection"
+
+[tool.uv.sources]
+cuvis-ai-schemas = { path = "../../cuvis-ai-schemas", editable = true }
+
+
+[tool.setuptools.package-data]
+cuvis_ai_ui = ["resources/icons/*"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cuvis_ai_ui"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "node-and-date"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "--cov=cuvis_ai_ui",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=80",
+    "--ignore=tests/manual",
+]
+qt_api = "pyside6"
+
+[tool.coverage.run]
+source = ["cuvis_ai_ui"]
+omit = [
+    "cuvis_ai_ui/__init__.py",
+    "cuvis_ai_ui/resources/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@abstractmethod",
+]
+precision = 2
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"

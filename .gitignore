@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Logs
+*.log
+cuvis_ai_ui.log
+
+# uv
+.uv/
+uv.lock
+
+# Generated proto files
+cuvis_ai_ui/grpc/v1/*_pb2.py
+cuvis_ai_ui/grpc/v1/*_pb2_grpc.py
+cuvis_ai_ui/grpc/v1/*_pb2.pyi
+cuvis_ai_ui/grpc/v1/*_pb2_grpc.pyi
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+.history/
+.claude/
+*.code-workspace

@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../cuvis-ai"
+		},
+		{
+			"path": "../dev-docs"
+		},
+		{
+			"path": "../cuvis-ai-core"
+		}
+	],
+	"settings": {}
+}
