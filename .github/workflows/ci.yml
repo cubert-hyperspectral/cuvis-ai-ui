@@ -22,6 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1-mesa-glx libxkbcommon0
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -38,7 +43,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          uv run pytest tests/ \
+          QT_QPA_PLATFORM=offscreen uv run pytest tests/ \
             --cov=cuvis_ai_ui \
             --cov-report=xml \
             --cov-report=term-missing \
