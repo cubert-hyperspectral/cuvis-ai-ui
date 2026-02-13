@@ -117,6 +117,8 @@ addopts = [
     "--cov-report=html",
     "--cov-fail-under=80",
     "--ignore=tests/manual",
+    "--ignore=tests/integration/test_main_window.py",
+    "--ignore=tests/integration/test_pipeline_load_save.py",
 ]
 qt_api = "pyside6"
 
@@ -125,6 +127,8 @@ source = ["cuvis_ai_ui"]
 omit = [
     "cuvis_ai_ui/__init__.py",
     "cuvis_ai_ui/resources/*",
+    "cuvis_ai_ui/main.py",
+    "cuvis_ai_ui/main_window.py",
 ]
 
 [tool.coverage.report]

@@ -437,16 +437,19 @@ class PluginManagerDialog(QDialog):
         source: str,
         origin: str | None = None,
     ) -> None:
+        if not loaded:
+            return
+
         plugins = manifest.get("plugins", {})
         if not isinstance(plugins, dict):
             return
 
-        loaded_set = set(loaded) if loaded else set()
+        loaded_set = set(loaded)
         new_entries: list[dict[str, Any]] = []
         for name, config in plugins.items():
             if not isinstance(name, str) or not isinstance(config, dict):
                 continue
-            if loaded_set and name not in loaded_set:
+            if name not in loaded_set:
                 continue
             entry = {
                 "name": name,

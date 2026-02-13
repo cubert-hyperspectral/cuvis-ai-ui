@@ -60,8 +60,10 @@ class ServerManager:
         self._port = port
         self._process: subprocess.Popen | None = None
         self._last_error: str = ""
-        # Register cleanup so the server is stopped even on unclean exit
-        atexit.register(self.stop)
+        # Register cleanup so the server is stopped even on unclean exit.
+        # Use _atexit_stop (no logging) because output streams may already
+        # be closed when atexit callbacks run (e.g. pytest-cov closes stderr).
+        atexit.register(self._atexit_stop)
 
     @property
     def port(self) -> int:
@@ -177,6 +179,25 @@ class ServerManager:
         logger.warning("Server did not become ready within %.0fs", timeout)
         self._last_error = f"Timeout after {timeout}s waiting for server at {target}"
         return False
+
+    def _atexit_stop(self) -> None:
+        """Terminate the server at exit without logging.
+
+        Output streams (stderr) may already be closed when atexit callbacks
+        run, which causes loguru to emit "I/O operation on closed file"
+        errors.  This method skips all logging.
+        """
+        if self._process is None or self._process.poll() is not None:
+            self._process = None
+            return
+
+        self._process.terminate()
+        try:
+            self._process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait(timeout=5)
+        self._process = None
 
     def stop(self, grace: float = 5.0) -> None:
         """Gracefully terminate the server subprocess."""

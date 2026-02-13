@@ -75,7 +75,7 @@ class NodePaletteItem(QTreeWidgetItem):
                     lines.append(f"  - {name}: {dtype}{opt_str}")
                 elif isinstance(spec, PortSpec):
                     opt_str = " (opt)" if spec.optional else ""
-                    lines.append(f"  - {spec.name}: {spec.dtype}{opt_str}")
+                    lines.append(f"  - {spec.dtype}{opt_str}")
 
         # Output specs
         output_specs = info.get("output_specs", [])
@@ -87,7 +87,7 @@ class NodePaletteItem(QTreeWidgetItem):
                     dtype = spec.get("dtype", "any")
                     lines.append(f"  - {name}: {dtype}")
                 elif isinstance(spec, PortSpec):
-                    lines.append(f"  - {spec.name}: {spec.dtype}")
+                    lines.append(f"  - {spec.dtype}")
 
         # Source info
         source = info.get("source", "")

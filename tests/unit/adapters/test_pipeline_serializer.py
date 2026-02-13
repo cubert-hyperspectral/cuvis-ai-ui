@@ -170,7 +170,7 @@ def test_to_config_with_nodes(pipeline_serializer, mock_graph):
 
     assert len(config["nodes"]) == 1
     assert config["nodes"][0]["class"] == "cuvis_ai.node.test.TestNode"
-    assert config["nodes"][0]["name"] == "test_node"
+    assert config["nodes"][0]["id"] == "test_node"
 
 
 def test_to_config_with_connections(pipeline_serializer, mock_graph):
