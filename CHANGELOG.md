@@ -1,20 +1,19 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [Unreleased]
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+- Reformatted CHANGELOG to concise single-list style
+- Updated release workflow changelog extraction for new heading format
 
-## [0.1.0]
+## 0.1.0
 
-### Added
-- Visual pipeline editor with drag-and-drop node connections
-- Node palette with search and categorized browsing
-- Property editor with dynamic parameter forms
-- Pipeline YAML load/save support
-- Plugin manager for extending available nodes
-- gRPC client integration with cuvis-ai-core
-- Server connection dialog (local auto-start or remote)
-- Windows installer (Inno Setup) bundling UI and gRPC server with PyTorch CUDA 12.8
-- CI/CD workflows (GitHub Actions)
-- Codecov integration
+- Added visual pipeline editor with drag-and-drop node connections
+- Added node palette with search and categorized browsing
+- Added property editor with dynamic parameter forms
+- Added pipeline YAML load/save support
+- Added plugin manager for extending available nodes
+- Added gRPC client integration with cuvis-ai-core
+- Added server connection dialog with local auto-start and remote support
+- Added Windows installer bundling UI and gRPC server with PyTorch CUDA 12.8
+- Added CI/CD workflows with GitHub Actions
+- Added Codecov integration
