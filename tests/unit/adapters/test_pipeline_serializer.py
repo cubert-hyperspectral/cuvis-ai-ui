@@ -248,7 +248,7 @@ metadata:
 nodes:
   - class_name: cuvis_ai.node.test.TestNode
     name: test
-    params: {}
+    hparams: {}
 connections: []
 """
 
@@ -303,7 +303,7 @@ def test_load_warnings_for_missing_nodes(pipeline_serializer, mock_graph):
     """Test that warnings are generated for missing node classes."""
     config = {
         "metadata": {"name": "Test"},
-        "nodes": [{"class_name": "cuvis_ai.node.NonExistent", "name": "missing", "params": {}}],
+        "nodes": [{"class_name": "cuvis_ai.node.NonExistent", "name": "missing", "hparams": {}}],
         "connections": [],
     }
 
@@ -351,7 +351,7 @@ def test_round_trip_validation_missing_node(pipeline_serializer, mock_graph):
     """Test round-trip validation detects missing nodes."""
     original_config = {
         "metadata": {},
-        "nodes": [{"class_name": "TestNode", "name": "test", "params": {}}],
+        "nodes": [{"class_name": "TestNode", "name": "test", "hparams": {}}],
         "connections": [],
     }
 

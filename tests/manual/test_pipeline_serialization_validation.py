@@ -97,9 +97,9 @@ def test_yaml_output():
             NodeConfig(
                 class_name="cuvis_ai.node.normalizer.MinMaxNormalizer",
                 name="normalizer",
-                params={"min": 0.0, "max": 1.0},
+                hparams={"min": 0.0, "max": 1.0},
             ),
-            NodeConfig(class_name="cuvis_ai.node.model.SimpleModel", name="model", params={}),
+            NodeConfig(class_name="cuvis_ai.node.model.SimpleModel", name="model", hparams={}),
         ],
         connections=[
             ConnectionConfig(source="normalizer.outputs.cube", target="model.inputs.data"),

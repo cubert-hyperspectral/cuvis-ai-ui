@@ -73,9 +73,9 @@ def sample_pipeline_config():
             {
                 "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {"min": 0.0, "max": 1.0},
+                "hparams": {"min": 0.0, "max": 1.0},
             },
-            {"class_name": "cuvis_ai.node.model.SimpleModel", "name": "model", "params": {}},
+            {"class_name": "cuvis_ai.node.model.SimpleModel", "name": "model", "hparams": {}},
         ],
         "connections": [{"source": "normalizer.outputs.cube", "target": "model.inputs.data"}],
     }

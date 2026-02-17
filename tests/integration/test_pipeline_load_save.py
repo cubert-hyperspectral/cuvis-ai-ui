@@ -129,7 +129,7 @@ def test_load_pipeline_with_metadata(node_registry, tmp_path):
             {
                 "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {},
+                "hparams": {},
             }
         ],
         "connections": [],
@@ -164,12 +164,12 @@ def test_load_pipeline_with_connections(node_registry, tmp_path):
             {
                 "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {},
+                "hparams": {},
             },
             {
                 "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer2",
-                "params": {},
+                "hparams": {},
             },
         ],
         "connections": [{"source": "normalizer.outputs.cube", "target": "normalizer2.inputs.cube"}],
@@ -222,7 +222,7 @@ def test_load_pipeline_with_missing_nodes(node_registry, tmp_path):
 
     config = {
         "metadata": {"name": "Missing Nodes Pipeline"},
-        "nodes": [{"class_name": "nonexistent.node.FakeNode", "name": "fake_node", "params": {}}],
+        "nodes": [{"class_name": "nonexistent.node.FakeNode", "name": "fake_node", "hparams": {}}],
         "connections": [],
     }
 
@@ -304,7 +304,7 @@ def test_pipeline_hyperparameter_preservation(node_registry, tmp_path):
             {
                 "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
-                "params": {"min": 0.0, "max": 1.0},
+                "hparams": {"min": 0.0, "max": 1.0},
             }
         ],
         "connections": [],
@@ -319,9 +319,8 @@ def test_pipeline_hyperparameter_preservation(node_registry, tmp_path):
 
     # Hyperparameters should be in output
     assert len(output_config["nodes"]) > 0
-    # Check if params are preserved (may be under "params" or "hparams")
     node_config = output_config["nodes"][0]
-    assert "params" in node_config or "hparams" in node_config
+    assert "hparams" in node_config
 
 
 def test_multiple_pipelines_same_serializer(sample_pipeline_config, node_registry, tmp_path):

@@ -14,7 +14,7 @@ metadata:
 nodes:
   - class_name: cuvis_ai.node.normalization.MinMaxNormalizer
     name: normalizer
-    params:
+    hparams:
       min: 0.0
       max: 1.0
 
@@ -134,7 +134,7 @@ class PipelineSerializer:
             node_dict = {
                 "class_name": node_config.class_name,
                 "name": node_config.name,
-                "hparams": node_config.params,
+                "hparams": node_config.hparams,
             }
             node = self._create_node(node_dict, graph)
             if node:
@@ -467,10 +467,6 @@ class PipelineSerializer:
                     "name": node.name(),
                 }
 
-            # Convert internal 'hparams' to schema 'params'
-            if "hparams" in node_dict and "params" not in node_dict:
-                node_dict["params"] = node_dict.pop("hparams")
-
             nodes_list.append(NodeConfig(**node_dict))
 
         # Build connection configs using source/target format
@@ -508,7 +504,7 @@ class PipelineSerializer:
                     {
                         "class_name": n.class_name,
                         "name": n.name,
-                        "params": n.params,
+                        "hparams": n.hparams,
                     }
                     for n in nodes_list
                 ],
