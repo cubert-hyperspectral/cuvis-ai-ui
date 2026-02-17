@@ -254,13 +254,13 @@ class CuvisNodeAdapter(BaseNode):
         Returns:
             Dictionary in cuvis-ai pipeline YAML format:
             {
-                "class": "full.path.to.NodeClass",
+                "class_name": "full.path.to.NodeClass",
                 "name": "node_instance_name",
-                "hparams": {...}
+                "params": {...}
             }
         """
         config: dict[str, Any] = {
-            "class": self._cuvis_class_path,
+            "class_name": self._cuvis_class_path,
             "name": self.name(),
         }
 

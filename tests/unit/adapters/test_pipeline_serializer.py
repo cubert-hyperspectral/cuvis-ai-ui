@@ -157,9 +157,9 @@ def test_to_config_with_nodes(pipeline_serializer, mock_graph):
     mock_node.name = Mock(return_value="test_node")
     mock_node.get_cuvis_config = Mock(
         return_value={
-            "class": "cuvis_ai.node.test.TestNode",
+            "class_name": "cuvis_ai.node.test.TestNode",
             "name": "test_node",
-            "params": {"param1": "value1"},
+            "hparams": {"param1": "value1"},
         }
     )
     mock_node.output_ports = Mock(return_value=[])
@@ -169,8 +169,8 @@ def test_to_config_with_nodes(pipeline_serializer, mock_graph):
     config = pipeline_serializer.to_config(mock_graph)
 
     assert len(config["nodes"]) == 1
-    assert config["nodes"][0]["class"] == "cuvis_ai.node.test.TestNode"
-    assert config["nodes"][0]["id"] == "test_node"
+    assert config["nodes"][0]["class_name"] == "cuvis_ai.node.test.TestNode"
+    assert config["nodes"][0]["name"] == "test_node"
 
 
 def test_to_config_with_connections(pipeline_serializer, mock_graph):
@@ -183,7 +183,7 @@ def test_to_config_with_connections(pipeline_serializer, mock_graph):
     mock_source = Mock(spec=CuvisNodeAdapter)
     mock_source.name = Mock(return_value="source")
     mock_source.get_cuvis_config = Mock(
-        return_value={"class": "cuvis_ai.node.Source", "name": "source", "params": {}}
+        return_value={"class_name": "cuvis_ai.node.Source", "name": "source", "hparams": {}}
     )
     mock_source.output_ports = Mock(return_value=[mock_output_port])
 
@@ -246,7 +246,7 @@ metadata:
   name: Test Pipeline
   description: From string
 nodes:
-  - class: cuvis_ai.node.test.TestNode
+  - class_name: cuvis_ai.node.test.TestNode
     name: test
     params: {}
 connections: []
@@ -303,7 +303,7 @@ def test_load_warnings_for_missing_nodes(pipeline_serializer, mock_graph):
     """Test that warnings are generated for missing node classes."""
     config = {
         "metadata": {"name": "Test"},
-        "nodes": [{"class": "cuvis_ai.node.NonExistent", "name": "missing", "params": {}}],
+        "nodes": [{"class_name": "cuvis_ai.node.NonExistent", "name": "missing", "params": {}}],
         "connections": [],
     }
 
@@ -351,7 +351,7 @@ def test_round_trip_validation_missing_node(pipeline_serializer, mock_graph):
     """Test round-trip validation detects missing nodes."""
     original_config = {
         "metadata": {},
-        "nodes": [{"class": "TestNode", "name": "test", "params": {}}],
+        "nodes": [{"class_name": "TestNode", "name": "test", "params": {}}],
         "connections": [],
     }
 

@@ -127,7 +127,7 @@ def test_load_pipeline_with_metadata(node_registry, tmp_path):
         },
         "nodes": [
             {
-                "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
+                "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
                 "params": {},
             }
@@ -162,17 +162,17 @@ def test_load_pipeline_with_connections(node_registry, tmp_path):
         "metadata": {"name": "Connected Pipeline"},
         "nodes": [
             {
-                "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
+                "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
                 "params": {},
             },
             {
-                "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
+                "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer2",
                 "params": {},
             },
         ],
-        "connections": [{"from": "normalizer.outputs.cube", "to": "normalizer2.inputs.cube"}],
+        "connections": [{"source": "normalizer.outputs.cube", "target": "normalizer2.inputs.cube"}],
     }
 
     serializer = PipelineSerializer(node_registry)
@@ -222,7 +222,7 @@ def test_load_pipeline_with_missing_nodes(node_registry, tmp_path):
 
     config = {
         "metadata": {"name": "Missing Nodes Pipeline"},
-        "nodes": [{"class": "nonexistent.node.FakeNode", "name": "fake_node", "params": {}}],
+        "nodes": [{"class_name": "nonexistent.node.FakeNode", "name": "fake_node", "params": {}}],
         "connections": [],
     }
 
@@ -279,7 +279,7 @@ def test_pipeline_node_positions(sample_pipeline_config, node_registry):
 
 
 def test_pipeline_connection_format(sample_pipeline_config, node_registry):
-    """Test that connections use correct format (from/to dict)."""
+    """Test that connections use correct format (source/target dict)."""
     from NodeGraphQt import NodeGraph
 
     serializer = PipelineSerializer(node_registry)
@@ -288,12 +288,10 @@ def test_pipeline_connection_format(sample_pipeline_config, node_registry):
     _metadata = serializer.from_config(sample_pipeline_config, graph)
     output_config = serializer.to_config(graph)
 
-    # Connections should be in dict format with "from" and "to" keys
+    # Connections should be in dict format with "source" and "target" keys
     for conn in output_config.get("connections", []):
         if isinstance(conn, dict):
-            # Preferred format
-            assert "from" in conn or "to" in conn
-        # Legacy list format may also be supported
+            assert "source" in conn or "target" in conn
 
 
 def test_pipeline_hyperparameter_preservation(node_registry, tmp_path):
@@ -304,7 +302,7 @@ def test_pipeline_hyperparameter_preservation(node_registry, tmp_path):
         "metadata": {"name": "Hyperparameter Test"},
         "nodes": [
             {
-                "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
+                "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
                 "params": {"min": 0.0, "max": 1.0},
             }

@@ -71,13 +71,13 @@ def sample_pipeline_config():
         "metadata": {"name": "Test Pipeline", "description": "A test pipeline", "tags": ["test"]},
         "nodes": [
             {
-                "class": "cuvis_ai.node.normalization.MinMaxNormalizer",
+                "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
                 "name": "normalizer",
                 "params": {"min": 0.0, "max": 1.0},
             },
-            {"class": "cuvis_ai.node.model.SimpleModel", "name": "model", "params": {}},
+            {"class_name": "cuvis_ai.node.model.SimpleModel", "name": "model", "params": {}},
         ],
-        "connections": [{"from": "normalizer.outputs.cube", "to": "model.inputs.data"}],
+        "connections": [{"source": "normalizer.outputs.cube", "target": "model.inputs.data"}],
     }
 
 
