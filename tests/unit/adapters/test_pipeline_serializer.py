@@ -347,6 +347,35 @@ def test_round_trip_validation_identical(pipeline_serializer, sample_pipeline_co
     assert len(differences) == 0
 
 
+def test_to_config_success_path(pipeline_serializer, mock_graph):
+    """Test to_config creates validated PipelineConfig (success path, not fallback)."""
+    mock_node = Mock(spec=CuvisNodeAdapter)
+    mock_node.name = Mock(return_value="test_node")
+    mock_node.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "cuvis_ai.test.TestNode",
+            "name": "test_node",
+            "hparams": {"key": "value"},
+        }
+    )
+    mock_node.output_ports = Mock(return_value=[])
+
+    mock_graph.all_nodes.return_value = [mock_node]
+
+    from unittest.mock import patch as mock_patch
+
+    expected = {"metadata": None, "nodes": [{"class_name": "X"}], "connections": []}
+    with mock_patch(
+        "cuvis_ai_ui.adapters.pipeline_serializer.PipelineConfig",
+    ) as mock_pc:
+        mock_pc.return_value.to_dict.return_value = expected
+        config = pipeline_serializer.to_config(mock_graph)
+
+    mock_pc.assert_called_once()
+    mock_pc.return_value.to_dict.assert_called_once()
+    assert config is expected
+
+
 def test_to_config_fallback_on_validation_error(pipeline_serializer, mock_graph):
     """Test to_config falls back to basic dict when PipelineConfig raises."""
     mock_node = Mock(spec=CuvisNodeAdapter)
