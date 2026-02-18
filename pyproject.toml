@@ -81,9 +81,8 @@ Changelog = "https://github.com/cubert-hyperspectral/cuvis-ai-ui/blob/main/CHANG
 cuvis-ui = "cuvis_ai_ui.main:main"
 cuvis-ui-test = "cuvis_ai_ui.main:test_connection"
 
-# Local development override: create uv.toml with local path if needed
-# [tool.uv.sources]
-# cuvis-ai-schemas = { path = "../../cuvis-ai-schemas", editable = true }
+# Local development override — uncomment [tool.uv.sources] entry below to use local schemas
+# See [tool.uv.sources] section near end of file
 
 
 [tool.setuptools.package-data]
@@ -154,6 +153,7 @@ skips = ["B101"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+cuvis-ai-schemas = { path = "../../cuvis-ai-schemas/cuvis-ai-schemas-refactoring", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
