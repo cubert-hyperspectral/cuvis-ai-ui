@@ -46,7 +46,7 @@ def test_pipeline_info_dialog_get_metadata(qapp):
     assert "tag1" in retrieved.get("tags", []) or "tag1" in str(retrieved.get("tags", ""))
 
 
-def test_pipeline_info_dialog_update_metadata(qapp, qtbot):
+def test_pipeline_info_dialog_update_metadata(qapp):
     """Test updating metadata in dialog."""
     dialog = PipelineInfoDialog()
 
