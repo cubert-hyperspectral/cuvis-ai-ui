@@ -347,6 +347,36 @@ def test_round_trip_validation_identical(pipeline_serializer, sample_pipeline_co
     assert len(differences) == 0
 
 
+def test_to_config_fallback_on_validation_error(pipeline_serializer, mock_graph):
+    """Test to_config falls back to basic dict when PipelineConfig raises."""
+    mock_node = Mock(spec=CuvisNodeAdapter)
+    mock_node.name = Mock(return_value="test_node")
+    mock_node.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "cuvis_ai.test.TestNode",
+            "name": "test_node",
+            "hparams": {"key": "value"},
+        }
+    )
+    mock_node.output_ports = Mock(return_value=[])
+
+    mock_graph.all_nodes.return_value = [mock_node]
+
+    from unittest.mock import patch as mock_patch
+
+    with mock_patch(
+        "cuvis_ai_ui.adapters.pipeline_serializer.PipelineConfig",
+        side_effect=Exception("Validation failed"),
+    ):
+        config = pipeline_serializer.to_config(mock_graph)
+
+    assert config["metadata"] == {"name": "Untitled Pipeline"}
+    assert len(config["nodes"]) == 1
+    assert config["nodes"][0]["class_name"] == "cuvis_ai.test.TestNode"
+    assert config["nodes"][0]["name"] == "test_node"
+    assert config["nodes"][0]["hparams"] == {"key": "value"}
+
+
 def test_round_trip_validation_missing_node(pipeline_serializer, mock_graph):
     """Test round-trip validation detects missing nodes."""
     original_config = {
