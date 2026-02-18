@@ -349,18 +349,39 @@ def test_round_trip_validation_identical(pipeline_serializer, sample_pipeline_co
 
 def test_to_config_success_path(pipeline_serializer, mock_graph):
     """Test to_config creates validated PipelineConfig (success path, not fallback)."""
-    mock_node = Mock(spec=CuvisNodeAdapter)
-    mock_node.name = Mock(return_value="test_node")
-    mock_node.get_cuvis_config = Mock(
+    # Create two nodes with a connection between them
+    mock_target = Mock(spec=CuvisNodeAdapter)
+    mock_target.name = Mock(return_value="target_node")
+    mock_target.get_cuvis_config = Mock(
         return_value={
-            "class_name": "cuvis_ai.test.TestNode",
-            "name": "test_node",
+            "class_name": "cuvis_ai.test.TargetNode",
+            "name": "target_node",
+            "hparams": {},
+        }
+    )
+    mock_target.output_ports = Mock(return_value=[])
+
+    # Build a connected port on the target side
+    mock_connected_port = Mock()
+    mock_connected_port.name = Mock(return_value="data")
+    mock_connected_port.node = Mock(return_value=mock_target)
+
+    mock_output_port = Mock()
+    mock_output_port.name = Mock(return_value="output")
+    mock_output_port.connected_ports = Mock(return_value=[mock_connected_port])
+
+    mock_source = Mock(spec=CuvisNodeAdapter)
+    mock_source.name = Mock(return_value="source_node")
+    mock_source.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "cuvis_ai.test.SourceNode",
+            "name": "source_node",
             "hparams": {"key": "value"},
         }
     )
-    mock_node.output_ports = Mock(return_value=[])
+    mock_source.output_ports = Mock(return_value=[mock_output_port])
 
-    mock_graph.all_nodes.return_value = [mock_node]
+    mock_graph.all_nodes.return_value = [mock_source, mock_target]
 
     from unittest.mock import patch as mock_patch
 
@@ -420,3 +441,30 @@ def test_round_trip_validation_missing_node(pipeline_serializer, mock_graph):
 
     assert not is_valid
     assert any("Missing node" in d for d in differences)
+
+
+def test_round_trip_validation_class_mismatch(pipeline_serializer, mock_graph):
+    """Test round-trip validation detects class_name mismatch."""
+    original_config = {
+        "metadata": {},
+        "nodes": [{"class_name": "cuvis_ai.OriginalNode", "name": "node1", "hparams": {}}],
+        "connections": [],
+    }
+
+    # Mock graph returns a node whose to_config produces a different class_name
+    mock_node = Mock(spec=CuvisNodeAdapter)
+    mock_node.name = Mock(return_value="node1")
+    mock_node.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "cuvis_ai.DifferentNode",
+            "name": "node1",
+            "hparams": {},
+        }
+    )
+    mock_node.output_ports = Mock(return_value=[])
+    mock_graph.all_nodes.return_value = [mock_node]
+
+    is_valid, differences = pipeline_serializer.validate_round_trip(original_config, mock_graph)
+
+    assert not is_valid
+    assert any("class mismatch" in d.lower() for d in differences)
