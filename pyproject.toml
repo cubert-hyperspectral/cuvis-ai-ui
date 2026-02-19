@@ -153,7 +153,7 @@ skips = ["B101"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
-cuvis-ai-schemas = { git = "https://github.com/cubert-hyperspectral/cuvis-ai-schemas.git", branch = "nima/features/schemas-refactoring" }
+cuvis-ai-schemas = { git = "https://github.com/cubert-hyperspectral/cuvis-ai-schemas.git", branch = "main" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
