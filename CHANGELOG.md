@@ -6,8 +6,6 @@
 - Changed `plugin_manager.py` to import directly from `settings.plugins`
 - Removed backward-compat `plugin_settings.py` re-export shim
 - Fixed unused `qtbot` test fixture in pipeline info dialog tests
-- Reformatted CHANGELOG to concise single-list style
-- Updated release workflow changelog extraction for new heading format
 
 ## 0.1.0
 

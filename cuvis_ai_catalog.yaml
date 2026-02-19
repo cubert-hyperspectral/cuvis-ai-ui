@@ -104,8 +104,8 @@ plugins:
       # AdaCLIP Nodes (requires: adaclip package)
       # Note: May fail if adaclip not installed in server environment
       # ============================================================
-      - cuvis_ai.node.adaclip.AdaCLIPAPINode
-      - cuvis_ai.node.adaclip.AdaCLIPLocalNode
+      #- cuvis_ai.node.adaclip.AdaCLIPAPINode
+      #- cuvis_ai.node.adaclip.AdaCLIPLocalNode
 
       # ============================================================
       # Decider Nodes
