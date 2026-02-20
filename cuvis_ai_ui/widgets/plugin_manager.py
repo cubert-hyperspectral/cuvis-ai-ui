@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..grpc.client import CuvisAIClient
-from ..plugin_settings import (
+from ..settings.plugins import (
     load_plugin_entries,
     merge_plugin_entries,
     reset_plugin_entries,

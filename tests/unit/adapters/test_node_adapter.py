@@ -117,7 +117,7 @@ def test_get_cuvis_config_basic(qapp):
 
     config = node.get_cuvis_config()
 
-    assert config["class"] == "cuvis_ai.node.test.TestNode"
+    assert config["class_name"] == "cuvis_ai.node.test.TestNode"
     assert config["name"] == "test_node"
     assert "hparams" not in config  # Empty hparams not included
 

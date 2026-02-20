@@ -12,20 +12,16 @@ metadata:
   tags: [tag1, tag2]
 
 nodes:
-  - class: cuvis_ai.node.normalization.MinMaxNormalizer
+  - class_name: cuvis_ai.node.normalization.MinMaxNormalizer
     name: normalizer
-    params:
+    hparams:
       min: 0.0
       max: 1.0
 
 connections:
-  - from: source_node.outputs.output
-    to: target_node.inputs.input
+  - source: source_node.outputs.output
+    target: target_node.inputs.input
 ```
-
-Note: The serializer supports backward compatibility with legacy list format:
-`["source.outputs.port", "target.inputs.port"]` but always saves using the
-modern dict format with `from`/`to` keys for cuvis-ai-core compatibility.
 """
 
 import re
@@ -132,14 +128,13 @@ class PipelineSerializer:
         graph.clear_session()
 
         # Create nodes
-        # PipelineConfig.nodes returns list[dict], not list[NodeConfig]
         node_map: dict[str, CuvisNodeAdapter] = {}
 
         for i, node_config in enumerate(pipeline_config.nodes):
             node_dict = {
-                "class": node_config.get("class", node_config.get("class_name", "")),
-                "name": node_config.get("name", node_config.get("id", "")),
-                "hparams": node_config.get("hparams", node_config.get("params", {})),
+                "class_name": node_config.class_name,
+                "name": node_config.name,
+                "hparams": node_config.hparams,
             }
             node = self._create_node(node_dict, graph)
             if node:
@@ -150,18 +145,8 @@ class PipelineSerializer:
                 node.set_pos(col * 250, row * 150)
 
         # Create connections
-        # PipelineConfig.connections returns list[dict]
         for conn_config in pipeline_config.connections:
-            # Support both formats:
-            #   new: {from_node, from_port, to_node, to_port}
-            #   old: {from, to} with "node.outputs.port" strings
-            if "from_node" in conn_config:
-                source = f"{conn_config['from_node']}.outputs.{conn_config['from_port']}"
-                target = f"{conn_config['to_node']}.inputs.{conn_config['to_port']}"
-            else:
-                source = conn_config.get("from", "")
-                target = conn_config.get("to", "")
-            connection = [source, target]
+            connection = [conn_config.source, conn_config.target]
             if not self._create_connection(connection, node_map, graph):
                 self._load_failed_connections += 1
 
@@ -203,7 +188,7 @@ class PipelineSerializer:
         Returns:
             Created node or None if creation failed
         """
-        class_path = node_config.get("class", "")
+        class_path = node_config.get("class_name", "")
         node_name = node_config.get("name", "")
         hparams = node_config.get("hparams", {})
         execution_stages = node_config.get("execution_stages", ["always"])
@@ -478,44 +463,30 @@ class PipelineSerializer:
             else:
                 # Fallback for non-cuvis nodes
                 node_dict = {
-                    "class": getattr(node, "_cuvis_class_path", node.__class__.__name__),
+                    "class_name": getattr(node, "_cuvis_class_path", node.__class__.__name__),
                     "name": node.name(),
                 }
 
-            # Ensure we use 'params' not 'hparams' for Pydantic
-            if "hparams" in node_dict and "params" not in node_dict:
-                node_dict["params"] = node_dict.pop("hparams")
-
-            # Map 'name' to 'id' for NodeConfig schema
-            if "name" in node_dict and "id" not in node_dict:
-                node_dict["id"] = node_dict.pop("name")
-
             nodes_list.append(NodeConfig(**node_dict))
 
-        # Build connection configs using from_node/from_port/to_node/to_port
+        # Build connection configs using source/target format
         connections_list = []
         for node in graph.all_nodes():
             for output_port in node.output_ports():
                 for connected_port in output_port.connected_ports():
                     target_node = connected_port.node()
                     conn = ConnectionConfig(
-                        from_node=node.name(),
-                        from_port=output_port.name(),
-                        to_node=target_node.name(),
-                        to_port=connected_port.name(),
+                        source=f"{node.name()}.outputs.{output_port.name()}",
+                        target=f"{target_node.name()}.inputs.{connected_port.name()}",
                     )
                     connections_list.append(conn)
 
         # Create validated PipelineConfig
-        # Convert Pydantic models to dicts since PipelineConfig expects list[dict]
-        nodes_dicts = [n.model_dump(by_alias=True) for n in nodes_list]
-        conn_dicts = [c.model_dump() for c in connections_list]
-
         try:
             pipeline_config = PipelineConfig(
                 metadata=metadata if metadata else None,
-                nodes=nodes_dicts,
-                connections=conn_dicts,
+                nodes=nodes_list,
+                connections=connections_list,
             )
 
             # Note: cuvis-ai-schemas PipelineConfig doesn't have validate_connections_reference_nodes()
@@ -531,16 +502,16 @@ class PipelineSerializer:
                 "metadata": metadata or {"name": "Untitled Pipeline"},
                 "nodes": [
                     {
-                        "class": n.class_name,
-                        "name": n.id,
-                        "params": n.params,
+                        "class_name": n.class_name,
+                        "name": n.name,
+                        "hparams": n.hparams,
                     }
                     for n in nodes_list
                 ],
                 "connections": [
                     {
-                        "from": f"{c.from_node}.outputs.{c.from_port}",
-                        "to": f"{c.to_node}.inputs.{c.to_port}",
+                        "source": c.source,
+                        "target": c.target,
                     }
                     for c in connections_list
                 ],
@@ -570,10 +541,10 @@ class PipelineSerializer:
         for name in orig_nodes:
             if name not in new_nodes:
                 differences.append(f"Missing node: {name}")
-            elif orig_nodes[name].get("class") != new_nodes[name].get("class"):
+            elif orig_nodes[name].get("class_name") != new_nodes[name].get("class_name"):
                 differences.append(
                     f"Node class mismatch for {name}: "
-                    f"{orig_nodes[name].get('class')} vs {new_nodes[name].get('class')}"
+                    f"{orig_nodes[name].get('class_name')} vs {new_nodes[name].get('class_name')}"
                 )
 
         for name in new_nodes:
