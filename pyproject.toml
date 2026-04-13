@@ -37,7 +37,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.12.5",
     # Utilities
-    "loguru>=0.7.0",
+    "loguru>=0.7.3",
     "grpcio-tools>=1.76.0",
     "cuvis-ai-schemas[proto]",
     # Required transitively by cuvis-ai-schemas (ports.py imports torch)
