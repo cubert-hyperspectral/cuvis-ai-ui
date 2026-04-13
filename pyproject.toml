@@ -67,7 +67,7 @@ dev = [
 
 viz = [
     # Optional: For Phase 3 result visualization
-    "matplotlib>=3.0.0",
+    "matplotlib>=3.10.8",
     "numpy>=1.21.0",
 ]
 
