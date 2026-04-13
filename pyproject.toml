@@ -61,7 +61,7 @@ dev = [
     "pip-audit>=2.7.0",
     "bandit[toml]>=1.7.0",
     "detect-secrets>=1.4.0",
-    "pip-licenses>=4.0.0",
+    "pip-licenses>=5.5.5",
     "cyclonedx-bom>=4.0.0",
 ]
 
