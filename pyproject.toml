@@ -62,7 +62,7 @@ dev = [
     "bandit[toml]>=1.7.0",
     "detect-secrets>=1.4.0",
     "pip-licenses>=4.0.0",
-    "cyclonedx-bom>=4.0.0",
+    "cyclonedx-bom>=7.3.0",
 ]
 
 viz = [
