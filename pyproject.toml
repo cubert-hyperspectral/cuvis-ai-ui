@@ -38,7 +38,7 @@ dependencies = [
     "pydantic>=2.12.5",
     # Utilities
     "loguru>=0.7.0",
-    "grpcio-tools>=1.76.0",
+    "grpcio-tools>=1.80.0",
     "cuvis-ai-schemas[proto]",
     # Required transitively by cuvis-ai-schemas (ports.py imports torch)
     "torch>=2.0.0",
@@ -49,7 +49,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-qt>=4.0.0",
     "pytest-cov>=4.0.0",
-    "grpcio-tools>=1.56.0",
+    "grpcio-tools>=1.80.0",
     "ruff>=0.14.11",
     "ipdb>=0.13.13",
     "mypy>=1.8.0",
