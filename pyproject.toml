@@ -59,7 +59,7 @@ dev = [
     # Security and packaging tools
     "twine>=6.2.0",
     "pip-audit>=2.7.0",
-    "bandit[toml]>=1.7.0",
+    "bandit[toml]>=1.9.4",
     "detect-secrets>=1.4.0",
     "pip-licenses>=4.0.0",
     "cyclonedx-bom>=4.0.0",
