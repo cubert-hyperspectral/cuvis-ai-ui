@@ -232,19 +232,26 @@ def test_connection() -> None:
             print("[OK] Connected to gRPC server at localhost:50051")
             print(f"[OK] Session ID: {client.session_id}")
 
-            # Load cuvis-ai catalog nodes via plugin manifest
-            manifest_path = Path(__file__).parent.parent / "cuvis_ai_catalog.yaml"
-            if manifest_path.exists():
+            # Load persisted / default plugins
+            plugin_entries = load_plugin_entries()
+            manifest = build_manifest(plugin_entries, enabled_only=True)
+            if manifest.get("plugins"):
                 print()
-                print("Loading cuvis-ai catalog nodes...")
+                print("Loading plugins...")
+                temp_path = write_manifest_temp(manifest)
                 try:
-                    result = client.load_plugins(manifest_path)
+                    result = client.load_plugins(temp_path)
                     if result["loaded_plugins"]:
                         print(f"[OK] Loaded plugins: {', '.join(result['loaded_plugins'])}")
                     if result["failed_plugins"]:
                         print(f"[WARN] Failed plugins: {', '.join(result['failed_plugins'])}")
                 except Exception as e:
                     print(f"[WARN] Plugin loading failed: {e}")
+                finally:
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
                 print()
 
             nodes = client.list_available_nodes()

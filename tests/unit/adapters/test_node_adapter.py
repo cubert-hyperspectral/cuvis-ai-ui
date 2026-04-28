@@ -2,17 +2,26 @@
 
 from unittest.mock import Mock
 
+
+from cuvis_ai_schemas.enums import NodeCategory, NodeTag
+from cuvis_ai_schemas.extensions.ui.node_display import CATEGORY_STYLES, TAG_STYLES
+from cuvis_ai_schemas.grpc.conversions import (
+    node_category_to_proto,
+    node_tag_to_proto,
+)
+
 from cuvis_ai_ui.adapters.node_adapter import (
     CuvisNodeAdapter,
-    create_node_class,
-    NodeRegistry,
-    CATEGORY_COLORS,
     DEFAULT_NODE_COLOR,
+    NodeRegistry,
+    category_color,
+    create_node_class,
+    tag_chip_color,
 )
 
 
 def test_cuvis_node_adapter_init(qapp):
-    """Test CuvisNodeAdapter initialization."""
+    """Test CuvisNodeAdapter initialization including new metadata attrs."""
     node = CuvisNodeAdapter()
 
     assert node._cuvis_class_path == ""
@@ -23,19 +32,20 @@ def test_cuvis_node_adapter_init(qapp):
     assert node._cuvis_execution_stages == {"always"}
     assert node._cuvis_input_specs == {}
     assert node._cuvis_output_specs == {}
+    assert node._cuvis_category == NodeCategory.UNSPECIFIED
+    assert node._cuvis_tags == []
+    assert node._cuvis_icon_svg == b""
 
 
 def test_cuvis_node_adapter_properties(qapp):
     """Test CuvisNodeAdapter properties."""
     node = CuvisNodeAdapter()
 
-    # Set internal values
     node._cuvis_class_path = "cuvis_ai.node.test.TestNode"
     node._cuvis_class_name = "TestNode"
     node._cuvis_source = "plugin"
     node._cuvis_plugin_name = "test_plugin"
 
-    # Test property access
     assert node.cuvis_class_path == "cuvis_ai.node.test.TestNode"
     assert node.cuvis_class_name == "TestNode"
     assert node.cuvis_source == "plugin"
@@ -46,10 +56,8 @@ def test_cuvis_node_adapter_hparams_property(qapp):
     """Test CuvisNodeAdapter hparams property getter and setter."""
     node = CuvisNodeAdapter()
 
-    # Set via property
     node.cuvis_hparams = {"param1": "value1", "param2": 42}
 
-    # Get via property
     assert node.cuvis_hparams["param1"] == "value1"
     assert node.cuvis_hparams["param2"] == 42
 
@@ -58,10 +66,8 @@ def test_cuvis_node_adapter_execution_stages_property(qapp):
     """Test CuvisNodeAdapter execution_stages property."""
     node = CuvisNodeAdapter()
 
-    # Default value
     assert node.cuvis_execution_stages == {"always"}
 
-    # Set new value
     node.cuvis_execution_stages = {"train", "inference"}
     assert node.cuvis_execution_stages == {"train", "inference"}
 
@@ -76,37 +82,96 @@ def test_configure_from_node_info(qapp, sample_node_info):
     assert node._cuvis_source == "builtin"
     assert len(node._cuvis_input_specs) == 1
     assert len(node._cuvis_output_specs) == 1
+    assert node._cuvis_category == NodeCategory.TRANSFORM
+    assert node._cuvis_icon_svg == b""
 
 
-def test_get_category_from_path(qapp):
-    """Test category inference from class path."""
+def test_cuvis_category_returns_correct_enum(qapp):
+    """cuvis_category property resolves wire int to the correct NodeCategory."""
     node = CuvisNodeAdapter()
+    info = {
+        "class_name": "HsiLoader",
+        "full_path": "cuvis_ai.node.data.HsiLoader",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.SOURCE),
+        "tags": [],
+        "icon_svg": b"",
+    }
+    node.configure_from_node_info(info)
 
-    # Test normalization category
-    node._cuvis_class_path = "cuvis_ai.node.normalization.MinMaxNormalizer"
-    assert node._get_category_from_path() == "normalization"
-
-    # Test data category
-    node._cuvis_class_path = "cuvis_ai.node.data.DataLoader"
-    assert node._get_category_from_path() == "data"
-
-    # Test model category
-    node._cuvis_class_path = "cuvis_ai.node.model.ResNet"
-    assert node._get_category_from_path() == "model"
-
-    # Test utility category (default for unknown)
-    node._cuvis_class_path = "cuvis_ai.node.unknown.UnknownNode"
-    assert node._get_category_from_path() == "unknown"
+    assert node.cuvis_category == NodeCategory.SOURCE
 
 
-def test_get_category_from_path_fallback(qapp):
-    """Test category fallback for non-standard paths."""
+def test_cuvis_tags_narrows_known_ints_drops_unknown(qapp):
+    """cuvis_tags narrows known wire ints to NodeTag; unknown ints are dropped silently."""
     node = CuvisNodeAdapter()
+    hsi_wire = node_tag_to_proto(NodeTag.HYPERSPECTRAL)
+    info = {
+        "class_name": "T",
+        "full_path": "a.b.T",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": 0,
+        "tags": [hsi_wire, 99999],  # 99999 is not a known tag
+        "icon_svg": b"",
+    }
+    node.configure_from_node_info(info)
 
-    # Path without node keyword
-    node._cuvis_class_path = "some.module.ClassName"
-    category = node._get_category_from_path()
-    assert category == "utility"  # Default fallback
+    tags = node.cuvis_tags
+    assert NodeTag.HYPERSPECTRAL in tags
+    assert len(tags) == 1  # 99999 dropped
+
+
+def test_cuvis_icon_svg_passthrough(qapp):
+    """cuvis_icon_svg returns the exact bytes from node_info."""
+    node = CuvisNodeAdapter()
+    info = {
+        "class_name": "T",
+        "full_path": "a.b.T",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"<svg/>",
+    }
+    node.configure_from_node_info(info)
+
+    assert node.cuvis_icon_svg == b"<svg/>"
+
+
+def test_category_color_matches_category_styles():
+    """category_color() RGB must match the hex parse of CATEGORY_STYLES[cat]['border']."""
+    for cat in NodeCategory:
+        r, g, b, a = category_color(cat)
+        styles = CATEGORY_STYLES.get(cat, CATEGORY_STYLES[NodeCategory.UNSPECIFIED])
+        h = styles["border"]
+        assert r == int(h[1:3], 16), f"{cat}: red mismatch"
+        assert g == int(h[3:5], 16), f"{cat}: green mismatch"
+        assert b == int(h[5:7], 16), f"{cat}: blue mismatch"
+        assert a == 255
+
+
+def test_tag_chip_color_matches_tag_styles():
+    """tag_chip_color() RGB must match TAG_STYLES[tag]['badge_color'] for known tags."""
+    spot_check = [NodeTag.HYPERSPECTRAL, NodeTag.SEGMENTATION, NodeTag.TORCH]
+    for tag in spot_check:
+        r, g, b, a = tag_chip_color(tag)
+        h = TAG_STYLES[tag]["badge_color"]
+        assert r == int(h[1:3], 16), f"{tag}: red mismatch"
+        assert g == int(h[3:5], 16), f"{tag}: green mismatch"
+        assert b == int(h[5:7], 16), f"{tag}: blue mismatch"
+        assert a == 200
+
+
+def test_default_node_color():
+    """Test that DEFAULT_NODE_COLOR is defined and is a valid RGBA tuple."""
+    assert isinstance(DEFAULT_NODE_COLOR, tuple)
+    assert len(DEFAULT_NODE_COLOR) == 4
+    assert all(0 <= c <= 255 for c in DEFAULT_NODE_COLOR)
 
 
 def test_get_cuvis_config_basic(qapp):
@@ -119,7 +184,7 @@ def test_get_cuvis_config_basic(qapp):
 
     assert config["class_name"] == "cuvis_ai.node.test.TestNode"
     assert config["name"] == "test_node"
-    assert "hparams" not in config  # Empty hparams not included
+    assert "hparams" not in config
 
 
 def test_get_cuvis_config_with_hparams(qapp):
@@ -153,11 +218,11 @@ def test_get_cuvis_config_default_execution_stages(qapp):
     node = CuvisNodeAdapter()
     node._cuvis_class_path = "cuvis_ai.node.test.TestNode"
     node.set_name("test_node")
-    node._cuvis_execution_stages = {"always"}  # Default value
+    node._cuvis_execution_stages = {"always"}
 
     config = node.get_cuvis_config()
 
-    assert "execution_stages" not in config  # Default not exported
+    assert "execution_stages" not in config
 
 
 def test_update_hparam(qapp):
@@ -167,7 +232,6 @@ def test_update_hparam(qapp):
     node.update_hparam("param1", "value1")
     assert node._cuvis_hparams["param1"] == "value1"
 
-    # Update existing
     node.update_hparam("param1", "new_value")
     assert node._cuvis_hparams["param1"] == "new_value"
 
@@ -177,14 +241,9 @@ def test_get_hparam(qapp):
     node = CuvisNodeAdapter()
     node._cuvis_hparams = {"param1": "value1", "param2": 42}
 
-    # Get existing param
     assert node.get_hparam("param1") == "value1"
     assert node.get_hparam("param2") == 42
-
-    # Get non-existing param with default
     assert node.get_hparam("nonexistent", "default") == "default"
-
-    # Get non-existing param without default
     assert node.get_hparam("nonexistent") is None
 
 
@@ -194,7 +253,7 @@ def test_create_node_class(qapp, sample_node_info):
 
     assert issubclass(node_class, CuvisNodeAdapter)
     assert node_class.NODE_NAME == "MinMaxNormalizer"
-    assert "_" in node_class.__identifier__  # Path converted to underscores
+    assert "_" in node_class.__identifier__
 
 
 def test_create_node_class_auto_configures(qapp):
@@ -205,14 +264,17 @@ def test_create_node_class_auto_configures(qapp):
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.TRANSFORM),
+        "tags": [],
+        "icon_svg": b"",
     }
 
     node_class = create_node_class(node_info)
     node = node_class()
 
-    # Should auto-configure from node_info
     assert node._cuvis_class_name == "TestNode"
     assert node._cuvis_class_path == "cuvis_ai.node.test.TestNode"
+    assert node._cuvis_category == NodeCategory.TRANSFORM
 
 
 def test_node_registry_init():
@@ -236,7 +298,7 @@ def test_node_registry_register_node(sample_node_info):
 def test_node_registry_register_node_without_path():
     """Test registering node without full_path is skipped."""
     registry = NodeRegistry()
-    registry.register_node({"class_name": "Test"})  # Missing full_path
+    registry.register_node({"class_name": "Test"})
 
     assert len(registry) == 0
 
@@ -251,6 +313,9 @@ def test_node_registry_register_nodes(sample_node_info):
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.SOURCE),
+        "tags": [],
+        "icon_svg": b"",
     }
 
     registry.register_nodes([sample_node_info, node_info_2])
@@ -270,9 +335,7 @@ def test_node_registry_get_node_info(node_registry):
 
 def test_node_registry_get_node_info_not_found(node_registry):
     """Test getting non-existent node info returns None."""
-    info = node_registry.get_node_info("nonexistent.path")
-
-    assert info is None
+    assert node_registry.get_node_info("nonexistent.path") is None
 
 
 def test_node_registry_get_node_class(node_registry):
@@ -285,9 +348,7 @@ def test_node_registry_get_node_class(node_registry):
 
 def test_node_registry_get_node_class_not_found(node_registry):
     """Test getting non-existent node class returns None."""
-    node_class = node_registry.get_node_class("nonexistent.path")
-
-    assert node_class is None
+    assert node_registry.get_node_class("nonexistent.path") is None
 
 
 def test_node_registry_get_all_nodes(node_registry):
@@ -308,6 +369,9 @@ def test_node_registry_get_nodes_by_source():
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
     }
 
     plugin_node = {
@@ -317,6 +381,9 @@ def test_node_registry_get_nodes_by_source():
         "plugin_name": "test_plugin",
         "input_specs": [],
         "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
     }
 
     registry.register_nodes([builtin_node, plugin_node])
@@ -341,6 +408,9 @@ def test_node_registry_get_nodes_by_plugin():
         "plugin_name": "plugin1",
         "input_specs": [],
         "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
     }
 
     plugin2_node = {
@@ -350,6 +420,9 @@ def test_node_registry_get_nodes_by_plugin():
         "plugin_name": "plugin2",
         "input_specs": [],
         "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
     }
 
     registry.register_nodes([plugin1_node, plugin2_node])
@@ -363,34 +436,93 @@ def test_node_registry_get_nodes_by_plugin():
     assert plugin2_nodes[0]["class_name"] == "Plugin2Node"
 
 
-def test_node_registry_get_nodes_by_category():
-    """Test grouping nodes by category."""
+def test_group_by_category_basic():
+    """group_by_category groups nodes by their NodeCategory enum key."""
     registry = NodeRegistry()
 
-    norm_node = {
+    transform_node = {
         "class_name": "NormNode",
         "full_path": "cuvis_ai.node.normalization.NormNode",
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.TRANSFORM),
+        "tags": [],
+        "icon_svg": b"",
     }
 
-    data_node = {
+    source_node = {
         "class_name": "DataNode",
         "full_path": "cuvis_ai.node.data.DataNode",
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.SOURCE),
+        "tags": [],
+        "icon_svg": b"",
     }
 
-    registry.register_nodes([norm_node, data_node])
+    registry.register_nodes([transform_node, source_node])
+    grouped = registry.group_by_category()
 
-    categories = registry.get_nodes_by_category()
+    assert NodeCategory.TRANSFORM in grouped
+    assert NodeCategory.SOURCE in grouped
+    assert len(grouped[NodeCategory.TRANSFORM]) == 1
+    assert len(grouped[NodeCategory.SOURCE]) == 1
 
-    assert "Normalization" in categories
-    assert "Data" in categories
-    assert len(categories["Normalization"]) == 1
-    assert len(categories["Data"]) == 1
+
+def test_group_by_category_absent_when_empty():
+    """Categories with no nodes must be absent from the result dict."""
+    registry = NodeRegistry()
+
+    node = {
+        "class_name": "T",
+        "full_path": "a.b.T",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.TRANSFORM),
+        "tags": [],
+        "icon_svg": b"",
+    }
+    registry.register_node(node)
+
+    grouped = registry.group_by_category()
+
+    assert NodeCategory.SINK not in grouped
+
+
+def test_group_by_category_accepts_subset():
+    """group_by_category can be given an explicit node list subset."""
+    registry = NodeRegistry()
+
+    n1 = {
+        "class_name": "A",
+        "full_path": "a.A",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.SOURCE),
+        "tags": [],
+        "icon_svg": b"",
+    }
+    n2 = {
+        "class_name": "B",
+        "full_path": "a.B",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": node_category_to_proto(NodeCategory.SINK),
+        "tags": [],
+        "icon_svg": b"",
+    }
+    registry.register_nodes([n1, n2])
+
+    # Pass only n1 — n2 must not appear
+    grouped = registry.group_by_category([n1])
+
+    assert NodeCategory.SOURCE in grouped
+    assert NodeCategory.SINK not in grouped
 
 
 def test_node_registry_register_with_graph():
@@ -399,15 +531,17 @@ def test_node_registry_register_with_graph():
 
     node_info = {
         "class_name": "TestNode",
-        "full_path": "cuvis_ai.node.test.TestNode",
+        "full_path": "cuvis_ai.node.test.TestNode2",
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
     }
 
     registry.register_node(node_info)
 
-    # Mock graph
     mock_graph = Mock()
     mock_graph.register_node = Mock()
 
@@ -423,19 +557,20 @@ def test_node_registry_register_with_graph_handles_errors():
 
     node_info = {
         "class_name": "TestNode",
-        "full_path": "cuvis_ai.node.test.TestNode",
+        "full_path": "cuvis_ai.node.test.TestNode3",
         "source": "builtin",
         "input_specs": [],
         "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
     }
 
     registry.register_node(node_info)
 
-    # Mock graph that raises exception on registration
     mock_graph = Mock()
     mock_graph.register_node = Mock(side_effect=Exception("Registration failed"))
 
-    # Should not raise exception, just log and return 0
     count = registry.register_with_graph(mock_graph)
 
     assert count == 0
@@ -445,15 +580,18 @@ def test_node_registry_clear():
     """Test clearing the registry."""
     registry = NodeRegistry()
 
-    node_info = {
-        "class_name": "TestNode",
-        "full_path": "cuvis_ai.node.test.TestNode",
-        "source": "builtin",
-        "input_specs": [],
-        "output_specs": [],
-    }
-
-    registry.register_node(node_info)
+    registry.register_node(
+        {
+            "class_name": "TestNode",
+            "full_path": "cuvis_ai.node.test.TestNode4",
+            "source": "builtin",
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+    )
     assert len(registry) == 1
 
     registry.clear()
@@ -466,26 +604,3 @@ def test_node_registry_contains(node_registry):
     """Test checking if node is registered."""
     assert "cuvis_ai.node.normalization.MinMaxNormalizer" in node_registry
     assert "nonexistent.path" not in node_registry
-
-
-def test_category_colors_defined():
-    """Test that category colors are properly defined."""
-    assert isinstance(CATEGORY_COLORS, dict)
-    assert len(CATEGORY_COLORS) > 0
-
-    # Check some known categories
-    assert "data" in CATEGORY_COLORS
-    assert "normalization" in CATEGORY_COLORS
-    assert "model" in CATEGORY_COLORS
-
-    # Check color format (R, G, B, A)
-    for color in CATEGORY_COLORS.values():
-        assert len(color) == 4
-        assert all(isinstance(c, int) for c in color)
-        assert all(0 <= c <= 255 for c in color)
-
-
-def test_default_node_color():
-    """Test that default node color is defined."""
-    assert isinstance(DEFAULT_NODE_COLOR, tuple)
-    assert len(DEFAULT_NODE_COLOR) == 4

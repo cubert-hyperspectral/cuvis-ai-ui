@@ -8,9 +8,12 @@ import pytest
 from cuvis_ai_ui.settings.plugins import (
     PLUGIN_STORE_VERSION,
     _dedupe_entries,
+    _load_manifest_entries,
     _normalize_entry,
+    _resolve_local_path,
     build_manifest,
     load_plugin_entries,
+    load_plugin_entries_from_directory,
     merge_plugin_entries,
     reset_plugin_entries,
     save_plugin_entries,
@@ -421,25 +424,42 @@ class TestBuildManifest:
         assert "on" in manifest["plugins"]
         assert "off" in manifest["plugins"]
 
-    def test_resolves_relative_path_with_origin(self):
+    def test_resolves_relative_path_with_origin(self, tmp_path):
+        origin = tmp_path / "catalog.yaml"
         entries = [
             _make_entry(
                 name="rel",
                 config={"path": "subdir/module"},
-                origin="/base/dir/catalog.yaml",
+                origin=str(origin),
             ),
         ]
         manifest = build_manifest(entries)
-        expected = str(Path("/base/dir") / "subdir" / "module")
+        expected = str((tmp_path / "subdir" / "module").resolve())
         assert manifest["plugins"]["rel"]["path"] == expected
 
-    def test_absolute_path_not_changed(self):
-        abs_path = str(Path("/absolute/path/module"))
+    def test_resolves_dotdot_path_with_origin(self, tmp_path):
+        # Regression: `path: "../.."` in a YAML must resolve against the
+        # YAML's dir, not the server's CWD, before crossing gRPC.
+        nested = tmp_path / "configs" / "plugins"
+        nested.mkdir(parents=True)
+        origin = nested / "builtin.yaml"
+        entries = [
+            _make_entry(
+                name="builtin",
+                config={"path": "../.."},
+                origin=str(origin),
+            ),
+        ]
+        manifest = build_manifest(entries)
+        assert manifest["plugins"]["builtin"]["path"] == str(tmp_path.resolve())
+
+    def test_absolute_path_not_changed(self, tmp_path):
+        abs_path = str((tmp_path / "absolute" / "module").resolve())
         entries = [
             _make_entry(
                 name="abs",
                 config={"path": abs_path},
-                origin="/base/dir/catalog.yaml",
+                origin=str(tmp_path / "catalog.yaml"),
             ),
         ]
         manifest = build_manifest(entries)
@@ -477,6 +497,47 @@ class TestBuildManifest:
         # Original config should not be mutated
         assert config["path"] == "rel/path"
         assert config["provides"] == []
+
+
+# ── _resolve_local_path ──────────────────────────────────────────────
+
+
+class TestResolveLocalPath:
+    def test_relative_path_resolved_against_manifest_dir(self, tmp_path):
+        config = {"path": "../.."}
+        manifest_dir = tmp_path / "configs" / "plugins"
+        manifest_dir.mkdir(parents=True)
+        resolved = _resolve_local_path(config, manifest_dir)
+        assert resolved["path"] == str(tmp_path.resolve())
+
+    def test_absolute_path_passes_through_unchanged(self, tmp_path):
+        abs_path = str((tmp_path / "plugin_dir").resolve())
+        config = {"path": abs_path, "provides": ["a.b.C"]}
+        resolved = _resolve_local_path(config, tmp_path / "elsewhere")
+        assert resolved["path"] == abs_path
+        assert resolved["provides"] == ["a.b.C"]
+
+    def test_missing_path_returns_config_unchanged(self, tmp_path):
+        config = {"repo": "git@example.com:org/plugin.git", "tag": "v1"}
+        resolved = _resolve_local_path(config, tmp_path)
+        assert resolved == config
+
+    def test_non_string_path_returns_config_unchanged(self, tmp_path):
+        config = {"path": 123}
+        resolved = _resolve_local_path(config, tmp_path)
+        assert resolved == config
+
+    def test_input_config_not_mutated_when_resolving(self, tmp_path):
+        config = {"path": "./sub"}
+        _resolve_local_path(config, tmp_path)
+        assert config["path"] == "./sub"
+
+    def test_input_config_returned_as_is_when_not_applicable(self, tmp_path):
+        # When there's nothing to resolve, the helper may return the same
+        # object (no need to copy). Callers should not rely on identity.
+        config = {"repo": "x"}
+        resolved = _resolve_local_path(config, tmp_path)
+        assert resolved == config
 
 
 # ── write_manifest_temp ──────────────────────────────────────────────
@@ -523,3 +584,118 @@ class TestWriteManifestTemp:
             assert data == {}
         finally:
             path.unlink(missing_ok=True)
+
+
+# ── _load_manifest_entries ──────────────────────────────────────────
+
+
+class TestLoadManifestEntries:
+    def test_valid_manifest(self, tmp_path):
+        manifest = tmp_path / "plugins.yaml"
+        manifest.write_text(
+            "plugins:\n"
+            "  my_plugin:\n"
+            "    path: /some/path\n"
+            "    provides:\n"
+            "      - my_plugin.node.Foo\n",
+            encoding="utf-8",
+        )
+        entries = _load_manifest_entries(manifest)
+        assert len(entries) == 1
+        assert entries[0]["name"] == "my_plugin"
+        assert entries[0]["config"]["path"] == "/some/path"
+        assert entries[0]["origin"] == str(manifest)
+
+    def test_multiple_plugins(self, tmp_path):
+        manifest = tmp_path / "plugins.yaml"
+        manifest.write_text(
+            "plugins:\n  alpha:\n    path: /a\n  beta:\n    path: /b\n",
+            encoding="utf-8",
+        )
+        entries = _load_manifest_entries(manifest)
+        assert len(entries) == 2
+        assert {e["name"] for e in entries} == {"alpha", "beta"}
+
+    def test_nonexistent_file(self, tmp_path):
+        entries = _load_manifest_entries(tmp_path / "missing.yaml")
+        assert entries == []
+
+    def test_invalid_yaml(self, tmp_path):
+        manifest = tmp_path / "bad.yaml"
+        manifest.write_text("{bad yaml: [", encoding="utf-8")
+        entries = _load_manifest_entries(manifest)
+        assert entries == []
+
+    def test_empty_file(self, tmp_path):
+        manifest = tmp_path / "empty.yaml"
+        manifest.write_text("", encoding="utf-8")
+        entries = _load_manifest_entries(manifest)
+        assert entries == []
+
+    def test_no_plugins_key(self, tmp_path):
+        manifest = tmp_path / "noplugins.yaml"
+        manifest.write_text("something_else: true\n", encoding="utf-8")
+        entries = _load_manifest_entries(manifest)
+        assert entries == []
+
+    def test_entries_have_correct_defaults(self, tmp_path):
+        manifest = tmp_path / "plugins.yaml"
+        manifest.write_text(
+            "plugins:\n  test_plugin:\n    path: /p\n",
+            encoding="utf-8",
+        )
+        entries = _load_manifest_entries(manifest)
+        entry = entries[0]
+        assert entry["enabled"] is True
+        assert entry["source"] == "manifest"
+
+
+# ── load_plugin_entries_from_directory ──────────────────────────────
+
+
+class TestLoadPluginEntriesFromDirectory:
+    def test_loads_multiple_manifests(self, tmp_path):
+        (tmp_path / "a.yaml").write_text("plugins:\n  plugin_a:\n    path: /a\n", encoding="utf-8")
+        (tmp_path / "b.yaml").write_text("plugins:\n  plugin_b:\n    path: /b\n", encoding="utf-8")
+        entries = load_plugin_entries_from_directory(tmp_path)
+        assert len(entries) == 2
+        assert {e["name"] for e in entries} == {"plugin_a", "plugin_b"}
+
+    def test_deduplicates_across_manifests(self, tmp_path):
+        (tmp_path / "a.yaml").write_text("plugins:\n  dup:\n    path: /first\n", encoding="utf-8")
+        (tmp_path / "b.yaml").write_text("plugins:\n  dup:\n    path: /second\n", encoding="utf-8")
+        entries = load_plugin_entries_from_directory(tmp_path)
+        assert len(entries) == 1
+        # b.yaml comes after a.yaml alphabetically, so it wins
+        assert entries[0]["config"]["path"] == "/second"
+
+    def test_nonexistent_directory(self, tmp_path):
+        entries = load_plugin_entries_from_directory(tmp_path / "missing")
+        assert entries == []
+
+    def test_empty_directory(self, tmp_path):
+        entries = load_plugin_entries_from_directory(tmp_path)
+        assert entries == []
+
+    def test_ignores_non_yaml_files(self, tmp_path):
+        (tmp_path / "readme.txt").write_text("not a manifest", encoding="utf-8")
+        (tmp_path / "data.json").write_text('{"plugins": {}}', encoding="utf-8")
+        (tmp_path / "real.yaml").write_text("plugins:\n  real:\n    path: /r\n", encoding="utf-8")
+        entries = load_plugin_entries_from_directory(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["name"] == "real"
+
+    def test_skips_invalid_yaml_files(self, tmp_path):
+        (tmp_path / "bad.yaml").write_text("{bad yaml: [", encoding="utf-8")
+        (tmp_path / "good.yaml").write_text("plugins:\n  good:\n    path: /g\n", encoding="utf-8")
+        entries = load_plugin_entries_from_directory(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["name"] == "good"
+
+    def test_origin_set_per_manifest(self, tmp_path):
+        (tmp_path / "x.yaml").write_text("plugins:\n  px:\n    path: /x\n", encoding="utf-8")
+        (tmp_path / "y.yaml").write_text("plugins:\n  py:\n    path: /y\n", encoding="utf-8")
+        entries = load_plugin_entries_from_directory(tmp_path)
+        origins = {e["name"]: e["origin"] for e in entries}
+        assert origins["px"] == str(tmp_path / "x.yaml")
+        assert origins["py"] == str(tmp_path / "y.yaml")

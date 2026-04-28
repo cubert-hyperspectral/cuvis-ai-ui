@@ -70,3 +70,6 @@ Thumbs.db
 .history/
 .claude/
 *.code-workspace
+.gitnexus
+CLAUDE.md
+AGENTS.md

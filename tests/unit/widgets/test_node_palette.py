@@ -2,10 +2,14 @@
 
 from unittest.mock import MagicMock
 
+from cuvis_ai_schemas.enums import NodeCategory, NodeTag
+from cuvis_ai_schemas.grpc.conversions import node_category_to_proto, node_tag_to_proto
+
+from cuvis_ai_ui.adapters import NodeRegistry
 from cuvis_ai_ui.widgets.node_palette import NodePalette, NodePaletteItem
 
 
-def _count_visible_items(palette):
+def _count_visible_items(palette: NodePalette) -> int:
     """Count visible (non-hidden) node items in the tree."""
     count = 0
     for i in range(palette._tree.topLevelItemCount()):
@@ -30,20 +34,30 @@ def test_node_palette_item_initialization(sample_node_info):
 
 
 def test_node_palette_item_tooltip(sample_node_info):
-    """Test that NodePaletteItem generates a tooltip."""
+    """NodePaletteItem tooltip contains port info, category, and tags."""
     mock_parent = MagicMock()
 
     item = NodePaletteItem(mock_parent, sample_node_info)
     tooltip = item.toolTip(0)
 
-    # Tooltip should contain key information
     assert "MinMaxNormalizer" in tooltip
-    assert "cube" in tooltip  # port name
-    assert "float32" in tooltip  # dtype
+    assert "cube" in tooltip
+    assert "float32" in tooltip
+
+
+def test_node_palette_item_tooltip_includes_category_and_tags(sample_node_info):
+    """Tooltip shows Category and Tags lines."""
+    mock_parent = MagicMock()
+
+    item = NodePaletteItem(mock_parent, sample_node_info)
+    tooltip = item.toolTip(0)
+
+    assert "Category:" in tooltip
+    assert "Tags:" in tooltip
 
 
 def test_node_palette_item_with_empty_specs():
-    """Test NodePaletteItem with node that has no port specs."""
+    """NodePaletteItem works with no port specs, category, tags, or icon."""
     node_info = {
         "class_name": "EmptyNode",
         "full_path": "test.EmptyNode",
@@ -56,7 +70,6 @@ def test_node_palette_item_with_empty_specs():
     item = NodePaletteItem(mock_parent, node_info)
 
     assert item.text(0) == "EmptyNode"
-    # Should not crash with empty specs
     tooltip = item.toolTip(0)
     assert "EmptyNode" in tooltip
 
@@ -71,60 +84,144 @@ def test_node_palette_initialization(qapp, node_registry):
     assert palette._graph == mock_graph
 
 
-def test_node_palette_populate_with_registry(qapp, node_registry):
-    """Test palette is populated from NodeRegistry during init."""
+def test_initial_populate_uses_registry_nodes(qapp, node_registry):
+    """Palette must have tree items from the registry without calling refresh_nodes."""
     mock_graph = MagicMock()
 
     palette = NodePalette(node_registry, mock_graph)
 
-    # Should have created tree items (auto-populated in __init__)
+    # _all_nodes seeded in __init__; tree should already be populated
+    assert palette._tree.topLevelItemCount() > 0
+    assert len(palette._all_nodes) == len(node_registry.get_all_nodes())
+
+
+def test_node_palette_populate_with_registry(qapp, node_registry):
+    """Palette is populated from NodeRegistry during init."""
+    mock_graph = MagicMock()
+
+    palette = NodePalette(node_registry, mock_graph)
+
     assert palette._tree.topLevelItemCount() > 0
 
 
+def test_node_palette_populate_groups_by_category(qapp):
+    """Palette top-level items show NodeCategory.get_display_name() text."""
+    mock_graph = MagicMock()
+    registry = NodeRegistry()
+
+    registry.register_nodes(
+        [
+            {
+                "class_name": "Loader",
+                "full_path": "a.Loader",
+                "source": "builtin",
+                "input_specs": [],
+                "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.SOURCE),
+                "tags": [],
+                "icon_svg": b"",
+            },
+            {
+                "class_name": "Norm",
+                "full_path": "a.Norm",
+                "source": "builtin",
+                "input_specs": [],
+                "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.TRANSFORM),
+                "tags": [],
+                "icon_svg": b"",
+            },
+        ]
+    )
+
+    palette = NodePalette(registry, mock_graph)
+
+    section_texts = [
+        palette._tree.topLevelItem(i).text(0) for i in range(palette._tree.topLevelItemCount())
+    ]
+    source_label = NodeCategory.SOURCE.get_display_name()
+    transform_label = NodeCategory.TRANSFORM.get_display_name()
+
+    assert any(source_label in t for t in section_texts)
+    assert any(transform_label in t for t in section_texts)
+
+
 def test_node_palette_search_functionality(qapp, node_registry):
-    """Test search/filter functionality in palette."""
+    """Search filter hides non-matching nodes."""
     mock_graph = MagicMock()
 
     palette = NodePalette(node_registry, mock_graph)
 
     initial_visible = _count_visible_items(palette)
 
-    # Search for a specific node
     palette._search_input.setText("MinMax")
 
     filtered_visible = _count_visible_items(palette)
 
-    # Filtered results should be <= initial results
     assert filtered_visible <= initial_visible
 
 
+def test_node_palette_search_matches_tag_shortlabels(qapp):
+    """Searching a tag short-label surfaces nodes carrying that tag."""
+    mock_graph = MagicMock()
+    registry = NodeRegistry()
+
+    hsi_wire = node_tag_to_proto(NodeTag.HYPERSPECTRAL)
+
+    registry.register_nodes(
+        [
+            {
+                "class_name": "HsiNode",
+                "full_path": "a.HsiNode",
+                "source": "builtin",
+                "input_specs": [],
+                "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.SOURCE),
+                "tags": [hsi_wire],
+                "icon_svg": b"",
+            },
+            {
+                "class_name": "RgbNode",
+                "full_path": "a.RgbNode",
+                "source": "builtin",
+                "input_specs": [],
+                "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.SOURCE),
+                "tags": [node_tag_to_proto(NodeTag.RGB)],
+                "icon_svg": b"",
+            },
+        ]
+    )
+
+    palette = NodePalette(registry, mock_graph)
+
+    # "hsi" is the short_label for NodeTag.HYPERSPECTRAL
+    palette._search_input.setText("hsi")
+
+    assert _count_visible_items(palette) == 1
+
+
 def test_node_palette_clear_search(qapp, node_registry):
-    """Test clearing search filter."""
+    """Clearing search restores all items."""
     mock_graph = MagicMock()
 
     palette = NodePalette(node_registry, mock_graph)
 
     initial_visible = _count_visible_items(palette)
 
-    # Apply filter
     palette._search_input.setText("NonExistent")
-
-    # Clear filter
     palette._search_input.clear()
 
     final_visible = _count_visible_items(palette)
 
-    # Should show all items again
     assert final_visible == initial_visible
 
 
 def test_node_palette_organizes_by_category(qapp):
-    """Test that palette organizes nodes by category/plugin."""
+    """Palette creates multiple sections when nodes span multiple categories."""
     mock_graph = MagicMock()
-    from cuvis_ai_ui.adapters import NodeRegistry
-
-    # Create registry with nodes whose full_path matches different CATEGORY_COLORS
     registry = NodeRegistry()
+
     registry.register_nodes(
         [
             {
@@ -134,6 +231,9 @@ def test_node_palette_organizes_by_category(qapp):
                 "plugin_name": "",
                 "input_specs": [],
                 "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.TRANSFORM),
+                "tags": [],
+                "icon_svg": b"",
             },
             {
                 "class_name": "SimpleModel",
@@ -142,6 +242,9 @@ def test_node_palette_organizes_by_category(qapp):
                 "plugin_name": "",
                 "input_specs": [],
                 "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.MODEL),
+                "tags": [],
+                "icon_svg": b"",
             },
             {
                 "class_name": "DataLoader",
@@ -150,68 +253,60 @@ def test_node_palette_organizes_by_category(qapp):
                 "plugin_name": "",
                 "input_specs": [],
                 "output_specs": [],
+                "category": node_category_to_proto(NodeCategory.SOURCE),
+                "tags": [],
+                "icon_svg": b"",
             },
         ]
     )
 
     palette = NodePalette(registry, mock_graph)
 
-    # Should have multiple top-level categories
     assert palette._tree.topLevelItemCount() > 1
 
 
 def test_node_palette_refresh(qapp, node_registry):
-    """Test refreshing palette with new nodes."""
+    """Refreshing the palette keeps the same section count."""
     mock_graph = MagicMock()
 
     palette = NodePalette(node_registry, mock_graph)
 
     initial_count = palette._tree.topLevelItemCount()
 
-    # Refresh by repopulating the tree
     palette._populate_tree()
 
-    final_count = palette._tree.topLevelItemCount()
-
-    # Count should be consistent after refresh
-    assert final_count == initial_count
+    assert palette._tree.topLevelItemCount() == initial_count
 
 
 def test_node_palette_empty_registry(qapp):
-    """Test palette with empty NodeRegistry."""
+    """Palette with empty NodeRegistry does not crash."""
     mock_graph = MagicMock()
-    from cuvis_ai_ui.adapters import NodeRegistry
 
     empty_registry = NodeRegistry()
 
     palette = NodePalette(empty_registry, mock_graph)
 
-    # Should not crash with empty registry
-    assert palette._tree.topLevelItemCount() >= 0
+    assert palette._tree.topLevelItemCount() == 0
 
 
 def test_node_palette_item_selection(qapp, node_registry):
-    """Test selecting an item in the palette."""
+    """Selecting a tree item works without error."""
     mock_graph = MagicMock()
 
     palette = NodePalette(node_registry, mock_graph)
 
-    # Get first item
     if palette._tree.topLevelItemCount() > 0:
         category_item = palette._tree.topLevelItem(0)
         if category_item.childCount() > 0:
             node_item = category_item.child(0)
 
-            # Select the item
             palette._tree.setCurrentItem(node_item)
 
-            # Should be selected
             assert palette._tree.currentItem() == node_item
 
 
 def test_node_palette_port_spec_in_tooltip():
-    """Test that PortSpec objects are handled in tooltip via dict format."""
-    # Use dict-based specs (the format used in practice from gRPC client)
+    """Dict-format port specs render in tooltip."""
     node_info = {
         "class_name": "TestNode",
         "full_path": "test.TestNode",
@@ -225,7 +320,6 @@ def test_node_palette_port_spec_in_tooltip():
 
     tooltip = item.toolTip(0)
 
-    # Should handle port specs in tooltip
     assert "in1" in tooltip
     assert "out1" in tooltip
     assert "float32" in tooltip
@@ -233,7 +327,7 @@ def test_node_palette_port_spec_in_tooltip():
 
 
 def test_node_palette_with_plugin_source():
-    """Test NodePaletteItem with plugin source."""
+    """NodePaletteItem with plugin source mentions the plugin name in the tooltip."""
     node_info = {
         "class_name": "PluginNode",
         "full_path": "my_plugin.PluginNode",
@@ -248,5 +342,4 @@ def test_node_palette_with_plugin_source():
 
     tooltip = item.toolTip(0)
 
-    # Should mention plugin name
     assert "my_plugin" in tooltip or "Plugin" in tooltip

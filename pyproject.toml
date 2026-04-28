@@ -39,7 +39,7 @@ dependencies = [
     # Utilities
     "loguru>=0.7.0",
     "grpcio-tools>=1.76.0",
-    "cuvis-ai-schemas[proto]",
+    "cuvis-ai-schemas[proto]>=0.4.0",
     # Required transitively by cuvis-ai-schemas (ports.py imports torch)
     "torch>=2.0.0",
 ]
@@ -153,7 +153,7 @@ skips = ["B101"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
-cuvis-ai-schemas = { git = "https://github.com/cubert-hyperspectral/cuvis-ai-schemas.git", branch = "main" }
+cuvis-ai-schemas = { path = "D:\\code-repos\\cuvis-ai-schemas\\schemas-icons", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

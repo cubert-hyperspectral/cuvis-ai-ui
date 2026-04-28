@@ -8,43 +8,28 @@ from typing import Any
 
 from NodeGraphQt import BaseNode
 
+from cuvis_ai_schemas.enums import NodeCategory, NodeTag
+from cuvis_ai_schemas.extensions.ui.node_display import CATEGORY_STYLES, TAG_STYLES
+from cuvis_ai_schemas.grpc.conversions import proto_to_node_category, proto_to_node_tag
 from cuvis_ai_schemas.pipeline.ports import PortSpec
 
 from .port_helpers import create_input_port, create_output_port
 
 
-# Node category colors (background colors for node headers)
-CATEGORY_COLORS: dict[str, tuple[int, int, int, int]] = {
-    # Data loading/saving nodes
-    "data": (80, 120, 180, 255),  # Blue
-    "loader": (80, 120, 180, 255),
-    # Preprocessing/normalization
-    "normalization": (180, 120, 80, 255),  # Orange
-    "preprocessing": (180, 120, 80, 255),
-    # Feature extraction
-    "feature": (120, 180, 80, 255),  # Green
-    "extraction": (120, 180, 80, 255),
-    "band": (120, 180, 80, 255),
-    "selector": (120, 180, 80, 255),
-    # Anomaly detection (must be before "detector" to match first)
-    "anomaly": (200, 60, 180, 255),  # Magenta
-    # Models/ML
-    "model": (180, 80, 120, 255),  # Red/Pink
-    "network": (180, 80, 120, 255),
-    "classifier": (180, 80, 120, 255),
-    "detector": (180, 80, 120, 255),
-    # Loss functions
-    "loss": (120, 80, 180, 255),  # Purple
-    "criterion": (120, 80, 180, 255),
-    # Decision/thresholding nodes
-    "decider": (220, 180, 60, 255),  # Gold/Yellow
-    # Utility nodes
-    "utility": (150, 150, 150, 255),  # Gray
-    "transform": (150, 150, 150, 255),
-    "pca": (100, 180, 160, 255),  # Teal
-}
+DEFAULT_NODE_COLOR = (100, 100, 100, 255)  # fallback for NodeCategory.UNSPECIFIED
 
-DEFAULT_NODE_COLOR = (100, 100, 100, 255)  # Default gray
+
+def category_color(category: NodeCategory) -> tuple[int, int, int, int]:
+    """Return RGBA from the canonical CATEGORY_STYLES border hex for *category*."""
+    styles = CATEGORY_STYLES.get(category, CATEGORY_STYLES[NodeCategory.UNSPECIFIED])
+    h = styles["border"]
+    return (int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16), 255)
+
+
+def tag_chip_color(tag: NodeTag) -> tuple[int, int, int, int]:
+    """Return RGBA from the canonical TAG_STYLES badge_color hex for *tag*."""
+    h = TAG_STYLES.get(tag, {}).get("badge_color", "#888888")
+    return (int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16), 200)
 
 
 class CuvisNodeAdapter(BaseNode):
@@ -75,6 +60,9 @@ class CuvisNodeAdapter(BaseNode):
         self._cuvis_execution_stages: set[str] = {"always"}
         self._cuvis_input_specs: dict[str, PortSpec] = {}
         self._cuvis_output_specs: dict[str, PortSpec] = {}
+        self._cuvis_category: NodeCategory = NodeCategory.UNSPECIFIED
+        self._cuvis_tags: list[int] = []  # raw proto wire ints; narrowed to NodeTag at the accessor
+        self._cuvis_icon_svg: bytes = b""
 
     @property
     def cuvis_class_path(self) -> str:
@@ -126,6 +114,26 @@ class CuvisNodeAdapter(BaseNode):
         """Output port specifications."""
         return self._cuvis_output_specs
 
+    @property
+    def cuvis_category(self) -> NodeCategory:
+        """NodeCategory derived from the proto wire field."""
+        return self._cuvis_category
+
+    @property
+    def cuvis_tags(self) -> list[NodeTag]:
+        """Known NodeTag members; unknown wire ints from a newer server are dropped silently."""
+        out: list[NodeTag] = []
+        for raw in self._cuvis_tags:
+            tag = proto_to_node_tag(raw)
+            if tag is not None:
+                out.append(tag)
+        return out
+
+    @property
+    def cuvis_icon_svg(self) -> bytes:
+        """Raw SVG bytes for the node icon; b'' when absent."""
+        return self._cuvis_icon_svg
+
     def configure_from_node_info(self, node_info: dict[str, Any]) -> None:
         """Configure this adapter from node info returned by gRPC.
 
@@ -138,21 +146,25 @@ class CuvisNodeAdapter(BaseNode):
                 - input_specs: List of input port specs
                 - output_specs: List of output port specs
                 - hparams: Default hyperparameters
-                - category: Node category for coloring
+                - category: NodeCategory proto wire int (0 = UNSPECIFIED)
+                - tags: list of NodeTag proto wire ints
+                - icon_svg: SVG bytes (b"" when absent)
         """
         self._cuvis_class_name = node_info.get("class_name", "Unknown")
         self._cuvis_class_path = node_info.get("full_path", "")
         self._cuvis_source = node_info.get("source", "builtin")
         self._cuvis_plugin_name = node_info.get("plugin_name", "")
         self._cuvis_hparams = node_info.get("hparams", {})
+        self._cuvis_category = proto_to_node_category(node_info.get("category", 0))
+        self._cuvis_tags = list(node_info.get("tags", []))
+        self._cuvis_icon_svg = node_info.get("icon_svg", b"")
 
         # Set node display name
         self.set_name(self._cuvis_class_name)
 
-        # Set node color based on category (only RGB, not RGBA)
-        category = self._get_category_from_path()
-        color = CATEGORY_COLORS.get(category.lower(), DEFAULT_NODE_COLOR)
-        self.set_color(color[0], color[1], color[2])
+        # Colour from schemas CATEGORY_STYLES; only RGB accepted by NodeGraphQt
+        r, g, b, _ = category_color(self._cuvis_category)
+        self.set_color(r, g, b)
 
         # Create input ports
         for spec_data in node_info.get("input_specs", []):
@@ -219,34 +231,6 @@ class CuvisNodeAdapter(BaseNode):
 
             self._cuvis_output_specs[port_name] = spec
             create_output_port(self, port_name, spec)
-
-    def _get_category_from_path(self) -> str:
-        """Infer node category from its class path.
-
-        Examples:
-            cuvis_ai.node.normalization.MinMaxNormalizer -> normalization
-            cuvis_ai.node.data.DataLoader -> data
-            cuvis_ai_core.node.model.ResNet -> model
-
-        Returns:
-            Category string
-        """
-        path = self._cuvis_class_path.lower()
-
-        # Check for known category keywords in path
-        for category in CATEGORY_COLORS.keys():
-            if category in path:
-                return category
-
-        # Default: try to extract from path structure
-        # cuvis_ai.node.<category>.<ClassName>
-        parts = path.split(".")
-        if len(parts) >= 3 and "node" in parts:
-            node_idx = parts.index("node")
-            if node_idx + 1 < len(parts):
-                return parts[node_idx + 1]
-
-        return "utility"
 
     def get_cuvis_config(self) -> dict[str, Any]:
         """Export this node's configuration for YAML serialization.
@@ -425,29 +409,23 @@ class NodeRegistry:
         """
         return [info for info in self._nodes.values() if info.get("plugin_name") == plugin_name]
 
-    def get_nodes_by_category(self) -> dict[str, list[dict[str, Any]]]:
-        """Group nodes by category.
+    def group_by_category(
+        self, nodes: list[dict[str, Any]] | None = None
+    ) -> dict[NodeCategory, list[dict[str, Any]]]:
+        """Group nodes by NodeCategory.
+
+        Args:
+            nodes: Subset to group. Defaults to all registered nodes.
 
         Returns:
-            Dictionary mapping category -> list of node infos
+            Dict keyed by NodeCategory; categories with zero nodes are absent.
         """
-        categories: dict[str, list[dict[str, Any]]] = {}
-
-        for info in self._nodes.values():
-            # Infer category from path
-            path = info.get("full_path", "").lower()
-            category = "Other"
-
-            for cat in CATEGORY_COLORS.keys():
-                if cat in path:
-                    category = cat.title()
-                    break
-
-            if category not in categories:
-                categories[category] = []
-            categories[category].append(info)
-
-        return categories
+        source = nodes if nodes is not None else list(self._nodes.values())
+        result: dict[NodeCategory, list[dict[str, Any]]] = {}
+        for info in source:
+            cat = proto_to_node_category(info.get("category", 0))
+            result.setdefault(cat, []).append(info)
+        return result
 
     def register_with_graph(self, graph: Any) -> int:
         """Register all node classes with a NodeGraphQt graph.

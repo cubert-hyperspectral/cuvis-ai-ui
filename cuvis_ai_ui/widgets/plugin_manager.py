@@ -35,7 +35,10 @@ from PySide6.QtWidgets import (
 
 from ..grpc.client import CuvisAIClient
 from ..settings.plugins import (
+    _resolve_local_path,
+    build_manifest,
     load_plugin_entries,
+    load_plugin_entries_from_directory,
     merge_plugin_entries,
     reset_plugin_entries,
     save_plugin_entries,
@@ -111,6 +114,10 @@ class PluginManagerDialog(QDialog):
         manifest_widget = self._create_manifest_tab()
         tabs.addTab(manifest_widget, "Load from Manifest")
 
+        # Directory tab
+        directory_widget = self._create_directory_tab()
+        tabs.addTab(directory_widget, "Load from Directory")
+
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         button_box.rejected.connect(self.accept)
@@ -170,9 +177,8 @@ class PluginManagerDialog(QDialog):
         form_layout.addRow("Repository URL:", self._git_url)
 
         self._git_ref = QLineEdit()
-        self._git_ref.setPlaceholderText("main, v1.0.0, or commit hash")
-        self._git_ref.setText("main")
-        form_layout.addRow("Ref (branch/tag):", self._git_ref)
+        self._git_ref.setPlaceholderText("v1.0.0, v0.1.0-alpha")
+        form_layout.addRow("Tag:", self._git_ref)
 
         layout.addWidget(form_group)
 
@@ -294,6 +300,142 @@ class PluginManagerDialog(QDialog):
         layout.addWidget(load_btn)
 
         return widget
+
+    def _create_directory_tab(self) -> QWidget:
+        """Create the load from directory tab."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        layout.addWidget(
+            QLabel(
+                "Load all plugin manifests from a directory.\n"
+                "Each .yaml/.yml file in the directory will be treated as a manifest."
+            )
+        )
+
+        # Directory selection
+        dir_group = QGroupBox("Plugin Directory")
+        dir_layout = QHBoxLayout(dir_group)
+
+        self._directory_path = QLineEdit()
+        self._directory_path.setPlaceholderText("Select directory with plugin manifests...")
+        dir_layout.addWidget(self._directory_path)
+
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._browse_directory)
+        dir_layout.addWidget(browse_btn)
+
+        layout.addWidget(dir_group)
+
+        # Preview of found manifests
+        preview_group = QGroupBox("Found Manifests")
+        preview_layout = QVBoxLayout(preview_group)
+
+        self._directory_preview = QTextEdit()
+        self._directory_preview.setReadOnly(True)
+        self._directory_preview.setPlaceholderText("Click 'Scan' to find manifests...")
+        preview_layout.addWidget(self._directory_preview)
+
+        layout.addWidget(preview_group)
+
+        # Action buttons
+        btn_layout = QHBoxLayout()
+        scan_btn = QPushButton("Scan Directory")
+        scan_btn.clicked.connect(self._scan_directory)
+        btn_layout.addWidget(scan_btn)
+
+        load_btn = QPushButton("Load All Plugins")
+        load_btn.clicked.connect(self._load_directory_plugins)
+        btn_layout.addWidget(load_btn)
+
+        layout.addLayout(btn_layout)
+
+        return widget
+
+    def _browse_directory(self) -> None:
+        """Browse for plugin directory."""
+        path = QFileDialog.getExistingDirectory(self, "Select Plugin Directory")
+        if path:
+            self._directory_path.setText(path)
+
+    def _scan_directory(self) -> None:
+        """Scan directory for manifest files and show preview."""
+        import yaml
+
+        dir_path = self._directory_path.text().strip()
+        if not dir_path or not Path(dir_path).is_dir():
+            self._directory_preview.setPlainText("Invalid directory.")
+            return
+
+        manifests = sorted(Path(dir_path).glob("*.yaml")) + sorted(Path(dir_path).glob("*.yml"))
+        if not manifests:
+            self._directory_preview.setPlainText("No YAML files found.")
+            return
+
+        lines: list[str] = []
+        for m in manifests:
+            lines.append(f"- {m.name}")
+            try:
+                with open(m, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                plugins = data.get("plugins", {})
+                if isinstance(plugins, dict):
+                    for name in plugins:
+                        lines.append(f"    -> {name}")
+            except Exception:
+                lines.append("    (parse error)")
+
+        self._directory_preview.setPlainText("\n".join(lines))
+
+    def _load_directory_plugins(self) -> None:
+        """Load all plugins from all manifests in the directory."""
+        dir_path = self._directory_path.text().strip()
+        if not dir_path or not Path(dir_path).is_dir():
+            QMessageBox.warning(self, "Error", "Please select a valid directory.")
+            return
+
+        entries = load_plugin_entries_from_directory(dir_path)
+        if not entries:
+            QMessageBox.information(self, "No Plugins", "No plugin entries found in directory.")
+            return
+
+        manifest = build_manifest(entries, enabled_only=True)
+        if not manifest.get("plugins"):
+            QMessageBox.information(self, "No Plugins", "No enabled plugins found.")
+            return
+
+        temp_path = write_manifest_temp(manifest)
+        try:
+            result = self._client.load_plugins(temp_path)
+
+            loaded = result.get("loaded_plugins", [])
+            failed = result.get("failed_plugins", [])
+
+            if loaded:
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Loaded {len(loaded)} plugins:\n{', '.join(loaded)}",
+                )
+                self.plugins_loaded.emit(loaded)
+                self._plugin_entries = merge_plugin_entries(self._plugin_entries, entries)
+                save_plugin_entries(self._plugin_entries)
+                self._refresh_status()
+
+            if failed:
+                errors = self._format_failed_plugins(failed)
+                QMessageBox.warning(
+                    self, "Partial Failure", f"Some plugins failed to load:\n{errors}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to load plugins from directory: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load plugins:\n{e}")
+        finally:
+            try:
+                Path(temp_path).unlink()
+            except Exception:
+                pass
 
     def _refresh_status(self) -> None:
         """Refresh the loaded plugins status table."""
@@ -521,7 +663,7 @@ class PluginManagerDialog(QDialog):
             "plugins": {
                 name: {
                     "repo": url,
-                    "ref": ref,
+                    "tag": ref,
                 }
             }
         }
@@ -546,6 +688,11 @@ class PluginManagerDialog(QDialog):
         if not path:
             QMessageBox.warning(self, "Error", "Please enter a path.")
             return
+
+        # Normalize to an absolute path — relative paths entered in the form
+        # have no meaningful base-dir once they cross the gRPC boundary, so
+        # anchor them at the UI's CWD now while the user is still around.
+        path = str(Path(path).expanduser().resolve())
 
         if not Path(path).exists():
             QMessageBox.warning(self, "Error", f"Path does not exist: {path}")
@@ -592,8 +739,28 @@ class PluginManagerDialog(QDialog):
             QMessageBox.critical(self, "Error", "Manifest is missing a 'plugins' section.")
             return
 
+        # Resolve relative `path:` entries against the manifest file's dir,
+        # so the server (which has no knowledge of the YAML's location) sees
+        # absolute paths.
+        manifest_dir = Path(path).resolve().parent
+        resolved_plugins: dict[str, Any] = {}
+        for plugin_name, plugin_config in manifest.get("plugins", {}).items():
+            if isinstance(plugin_config, dict):
+                resolved_plugins[plugin_name] = _resolve_local_path(plugin_config, manifest_dir)
+            else:
+                resolved_plugins[plugin_name] = plugin_config
+        resolved_manifest = dict(manifest)
+        resolved_manifest["plugins"] = resolved_plugins
+
         try:
-            result = self._client.load_plugins(path)
+            temp_path = write_manifest_temp(resolved_manifest)
+            try:
+                result = self._client.load_plugins(temp_path)
+            finally:
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
 
             loaded = result.get("loaded_plugins", [])
             failed = result.get("failed_plugins", [])

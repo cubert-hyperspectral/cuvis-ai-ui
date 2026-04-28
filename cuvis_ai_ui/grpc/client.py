@@ -364,6 +364,9 @@ class CuvisAIClient:
             - plugin_name (str, optional): If from plugin
             - input_specs (list[dict]): Input port specifications
             - output_specs (list[dict]): Output port specifications
+            - category (int): NodeCategory proto wire value; 0 = UNSPECIFIED (proto3 default)
+            - tags (list[int]): NodeTag proto wire values; [] when absent
+            - icon_svg (bytes): SVG file bytes; b"" when absent
 
         Raises
         ------
@@ -393,6 +396,9 @@ class CuvisAIClient:
                         "plugin_name": node_info.plugin_name if node_info.plugin_name else None,
                         "input_specs": input_specs,
                         "output_specs": output_specs,
+                        "category": node_info.category,  # int — proto enum wire value; 0 = UNSPECIFIED
+                        "tags": list(node_info.tags),  # list[int] — proto enum wire values
+                        "icon_svg": node_info.icon_svg,  # bytes; b"" when absent
                     }
                 )
 
