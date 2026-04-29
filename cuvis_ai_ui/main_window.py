@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from .adapters import NodeRegistry, PipelineSerializer
 from .grpc.client import CuvisAIClient
 from .server import ServerManager
+from .widgets.canvas_drop_target import CanvasDropTarget
 from .widgets.connection_dialog import ConnectionDialog
 from .widgets.pipeline_info_dialog import PipelineInfoDialog
 
@@ -142,6 +143,10 @@ class MainWindow(QMainWindow):
         viewer.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._viewer_modifier_sync = _ViewerModifierSync(viewer)
         viewer.installEventFilter(self._viewer_modifier_sync)
+
+        # Accept drops from the node palette
+        self._canvas_drop_target = CanvasDropTarget(viewer, self._graph, self._node_registry)
+        self._canvas_drop_target.install()
 
     def _setup_menus(self) -> None:
         """Setup the menu bar."""
