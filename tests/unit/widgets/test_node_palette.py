@@ -6,7 +6,11 @@ from cuvis_ai_schemas.enums import NodeCategory, NodeTag
 from cuvis_ai_schemas.grpc.conversions import node_category_to_proto, node_tag_to_proto
 
 from cuvis_ai_ui.adapters import NodeRegistry
-from cuvis_ai_ui.widgets.node_palette import NodePalette, NodePaletteItem
+from cuvis_ai_ui.widgets.node_palette import (
+    NodePalette,
+    NodePaletteItem,
+    create_node_on_graph,
+)
 
 
 def _count_visible_items(palette: NodePalette) -> int:
@@ -154,7 +158,7 @@ def test_node_palette_search_functionality(qapp, node_registry):
 
     initial_visible = _count_visible_items(palette)
 
-    palette._search_input.setText("MinMax")
+    palette._search._input.setText("MinMax")
 
     filtered_visible = _count_visible_items(palette)
 
@@ -196,7 +200,7 @@ def test_node_palette_search_matches_tag_shortlabels(qapp):
     palette = NodePalette(registry, mock_graph)
 
     # "hsi" is the short_label for NodeTag.HYPERSPECTRAL
-    palette._search_input.setText("hsi")
+    palette._search._input.setText("hsi")
 
     assert _count_visible_items(palette) == 1
 
@@ -209,8 +213,8 @@ def test_node_palette_clear_search(qapp, node_registry):
 
     initial_visible = _count_visible_items(palette)
 
-    palette._search_input.setText("NonExistent")
-    palette._search_input.clear()
+    palette._search._input.setText("NonExistent")
+    palette._search._input.clear()
 
     final_visible = _count_visible_items(palette)
 
@@ -343,3 +347,77 @@ def test_node_palette_with_plugin_source():
     tooltip = item.toolTip(0)
 
     assert "my_plugin" in tooltip or "Plugin" in tooltip
+
+
+# --- create_node_on_graph helper ----------------------------------------
+
+
+def _make_mock_graph_and_registry():
+    """Build a (graph, registry, node) triple wired for create_node_on_graph."""
+    node_class = MagicMock()
+    node_class.__identifier__ = "test_pkg"
+    node_class.__name__ = "MyNode"
+
+    registry = MagicMock()
+    registry.get_node_class.return_value = node_class
+
+    created_node = MagicMock()
+    graph = MagicMock()
+    graph.create_node.return_value = created_node
+
+    return graph, registry, created_node, node_class
+
+
+def test_create_node_on_graph_uses_scene_pos_when_provided():
+    """When scene_pos is given, set_pos is called with those coords and the viewer is not consulted."""
+    graph, registry, node, node_class = _make_mock_graph_and_registry()
+
+    result = create_node_on_graph(graph, registry, "test_pkg.MyNode", scene_pos=(123.5, -45.0))
+
+    assert result is node
+    registry.get_node_class.assert_called_once_with("test_pkg.MyNode")
+    graph.create_node.assert_called_once_with("test_pkg.MyNode")
+    node.set_pos.assert_called_once_with(123.5, -45.0)
+    graph.viewer.assert_not_called()
+
+
+def test_create_node_on_graph_falls_back_to_viewport_center():
+    """When scene_pos is None, the node is placed at the viewport center."""
+    graph, registry, node, _ = _make_mock_graph_and_registry()
+
+    view = MagicMock()
+    center_point = MagicMock()
+    center_point.x.return_value = 10.0
+    center_point.y.return_value = 20.0
+    view.mapToScene.return_value = center_point
+    graph.viewer.return_value = view
+
+    result = create_node_on_graph(graph, registry, "test_pkg.MyNode")
+
+    assert result is node
+    view.mapToScene.assert_called_once()
+    node.set_pos.assert_called_once_with(10.0, 20.0)
+
+
+def test_create_node_on_graph_returns_none_when_class_unknown():
+    """Unknown class paths return None and never touch the graph."""
+    registry = MagicMock()
+    registry.get_node_class.return_value = None
+    graph = MagicMock()
+
+    result = create_node_on_graph(graph, registry, "missing.Node", scene_pos=(0.0, 0.0))
+
+    assert result is None
+    graph.create_node.assert_not_called()
+
+
+def test_create_node_on_graph_returns_none_for_empty_class_path():
+    """Empty class_path is rejected up-front without consulting the registry."""
+    registry = MagicMock()
+    graph = MagicMock()
+
+    result = create_node_on_graph(graph, registry, "", scene_pos=(0.0, 0.0))
+
+    assert result is None
+    registry.get_node_class.assert_not_called()
+    graph.create_node.assert_not_called()

@@ -9,67 +9,24 @@ from typing import Any
 
 from loguru import logger
 from NodeGraphQt import NodeGraph
-from PySide6.QtCore import QByteArray, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QDrag, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLineEdit,
     QPushButton,
-    QStyledItemDelegate,
-    QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QMimeData
 
-from cuvis_ai_schemas.enums import NodeCategory, NodeTag
+from cuvis_ai_schemas.enums import NodeCategory
 from cuvis_ai_schemas.extensions.ui.node_display import TAG_STYLES
 from cuvis_ai_schemas.grpc.conversions import proto_to_node_category, proto_to_node_tag
 
 from ..adapters import NodeRegistry, PortSpec
-from ..adapters.node_adapter import category_color, tag_chip_color
-from .tag_filter import TagFilterWidget
-
-
-class NodePaletteDelegate(QStyledItemDelegate):
-    """Paints tag chips to the right of the class name for NodePaletteItem rows."""
-
-    _CHIP_H = 14
-    _CHIP_PAD = 4
-    _CHIP_MARGIN = 3
-    _FONT_SIZE = 8
-
-    def paint(
-        self,
-        painter: QPainter,
-        option: QStyleOptionViewItem,
-        index: Any,
-    ) -> None:
-        super().paint(painter, option, index)
-        chips = index.data(Qt.ItemDataRole.UserRole + 1)
-        if not chips:
-            return
-        font = painter.font()
-        font.setPointSize(self._FONT_SIZE)
-        painter.setFont(font)
-        x = option.rect.right() - self._CHIP_MARGIN
-        y = option.rect.center().y() - self._CHIP_H // 2
-        for label, (r, g, b, a) in reversed(chips):
-            fm = painter.fontMetrics()
-            w = fm.horizontalAdvance(label) + self._CHIP_PAD * 2
-            x -= w + self._CHIP_MARGIN
-            rect = QRect(x, y, w, self._CHIP_H)
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(QColor(r, g, b, a))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 3, 3)
-            painter.setPen(QColor(255, 255, 255, 230))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
-            painter.restore()
+from ..adapters.node_adapter import category_color
+from .tag_search_filter import TagSearchFilter
 
 
 class NodePaletteItem(QTreeWidgetItem):
@@ -111,17 +68,6 @@ class NodePaletteItem(QTreeWidgetItem):
             renderer.render(painter)
             painter.end()
             self.setIcon(0, QIcon(pixmap))
-
-        # Chip data stored for the delegate to paint inline
-        chips: list[tuple[str, tuple[int, int, int, int]]] = []
-        for raw in node_info.get("tags", []):
-            tag = proto_to_node_tag(raw)
-            if tag is None:
-                continue
-            short = TAG_STYLES.get(tag, {}).get("short_label", "")
-            if short:
-                chips.append((short, tag_chip_color(tag)))
-        self.setData(0, Qt.ItemDataRole.UserRole + 1, chips)
 
     def _format_tooltip(self) -> str:
         """Format a detailed tooltip for the node."""
@@ -186,14 +132,63 @@ class NodePaletteItem(QTreeWidgetItem):
         return "<br>".join(lines)
 
 
+def create_node_on_graph(
+    graph: NodeGraph,
+    registry: NodeRegistry,
+    class_path: str,
+    scene_pos: tuple[float, float] | None = None,
+) -> Any:
+    """Place a node on the graph by full class path.
+
+    Resolves ``class_path`` through ``registry``, creates the corresponding
+    NodeGraphQt node, and positions it. When ``scene_pos`` is ``None``,
+    falls back to the viewport center (legacy double-click behaviour).
+
+    Args:
+        graph: Target NodeGraphQt graph.
+        registry: Node registry that maps class paths to node classes.
+        class_path: Full Python path of the node class (e.g. ``cuvis_ai.node.X``).
+        scene_pos: Optional ``(x, y)`` in scene coordinates for the placed node.
+
+    Returns:
+        The created node, or ``None`` if the class could not be resolved.
+    """
+    if not class_path:
+        logger.warning("create_node_on_graph called with empty class_path")
+        return None
+
+    node_class = registry.get_node_class(class_path)
+    if node_class is None:
+        logger.warning(f"Node class not found: {class_path}")
+        return None
+
+    try:
+        node_id = f"{node_class.__identifier__}.{node_class.__name__}"
+        node = graph.create_node(node_id)
+
+        if scene_pos is not None:
+            node.set_pos(scene_pos[0], scene_pos[1])
+        else:
+            view = graph.viewer()
+            if view:
+                center = view.mapToScene(view.viewport().rect().center())
+                node.set_pos(center.x(), center.y())
+
+        logger.info(f"Created node: {node_class.__name__}")
+        return node
+    except Exception as e:
+        logger.error(f"Failed to create node: {e}")
+        return None
+
+
 class NodePalette(QWidget):
     """Searchable tree widget for browsing available nodes.
 
     Features:
     - Tree grouped by NodeCategory (enum-int order)
-    - Tag filter strip for narrowing by modality / task / lifecycle / properties / backend
-    - Search filter matching class name, full path, and tag short-labels
-    - Category-coloured backgrounds, SVG icons, and inline tag chips
+    - Unified search-and-tag-filter input (autocompletes tags, free-text falls
+      through as class-name / full-path / tag-label search)
+    - Category-coloured backgrounds, SVG icons; tag list shown in tooltip
     - Drag-and-drop to create nodes on canvas
 
     Signals:
@@ -225,7 +220,6 @@ class NodePalette(QWidget):
         # Full unfiltered list — seeded from the registry so the initial
         # render is correct even before refresh_nodes() is called.
         self._all_nodes: list[dict[str, Any]] = list(node_registry.get_all_nodes())
-        self._active_tags: dict[str, set[NodeTag]] = {}
 
         self._setup_ui()
         self._populate_tree()
@@ -236,27 +230,17 @@ class NodePalette(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Tag filter strip (above search bar)
-        self._tag_filter = TagFilterWidget()
-        self._tag_filter.filter_changed.connect(self._on_filter_changed)
-        layout.addWidget(self._tag_filter)
-
-        # Search bar
-        search_layout = QHBoxLayout()
-        search_layout.setSpacing(4)
-
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Search nodes...")
-        self._search_input.textChanged.connect(lambda _: self._apply_filters())
-        self._search_input.setClearButtonEnabled(True)
-        search_layout.addWidget(self._search_input)
+        # Unified search-and-tag input (chips + autocomplete + free text)
+        self._search = TagSearchFilter()
+        self._search.tags_changed.connect(lambda _tags: self._apply_filters())
+        self._search.text_changed.connect(lambda _text: self._apply_filters())
 
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setMaximumWidth(70)
         refresh_btn.clicked.connect(self._on_refresh_clicked)
-        search_layout.addWidget(refresh_btn)
+        self._search.add_trailing_widget(refresh_btn)
 
-        layout.addLayout(search_layout)
+        layout.addWidget(self._search)
 
         # Tree widget
         self._tree = QTreeWidget()
@@ -264,7 +248,6 @@ class NodePalette(QWidget):
         self._tree.setDragEnabled(True)
         self._tree.setDragDropMode(QTreeWidget.DragDropMode.DragOnly)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._tree.setItemDelegate(NodePaletteDelegate(self._tree))
 
         # Enable custom drag handling
         self._tree.startDrag = self._start_drag  # type: ignore
@@ -272,13 +255,12 @@ class NodePalette(QWidget):
         layout.addWidget(self._tree)
 
     def _apply_filters(self) -> None:
-        """Apply active tag filter and search text, then rebuild the tree."""
-        search = self._search_input.text().lower().strip()
+        """Apply active tag chips and free-text input, then rebuild the tree."""
+        active_tags = self._search.current_tags()
+        search = self._search.current_text().lower()
 
-        # Tag filter: OR-within-namespace, AND-across-namespaces
-        filtered = TagFilterWidget.filter_nodes(self._all_nodes, self._active_tags)
+        filtered = TagSearchFilter.filter_nodes(self._all_nodes, active_tags)
 
-        # Search filter on the tag-filtered subset
         if search:
 
             def _matches(info: dict[str, Any]) -> bool:
@@ -294,10 +276,6 @@ class NodePalette(QWidget):
             filtered = [n for n in filtered if _matches(n)]
 
         self._populate_tree(filtered)
-
-    def _on_filter_changed(self, active_tags: dict[str, set[NodeTag]]) -> None:
-        self._active_tags = active_tags
-        self._apply_filters()
 
     def _populate_tree(self, nodes: list[dict[str, Any]] | None = None) -> None:
         """Populate the tree with nodes grouped by NodeCategory."""
@@ -362,25 +340,11 @@ class NodePalette(QWidget):
         Args:
             node_info: Node information dictionary
         """
-        class_path = node_info.get("full_path", "")
-        node_class = self._registry.get_node_class(class_path)
-
-        if node_class is None:
-            logger.warning(f"Node class not found: {class_path}")
-            return
-
-        try:
-            node_id = f"{node_class.__identifier__}.{node_class.__name__}"
-            node = self._graph.create_node(node_id)
-
-            view = self._graph.viewer()
-            if view:
-                center = view.mapToScene(view.viewport().rect().center())
-                node.set_pos(center.x(), center.y())
-
-            logger.info(f"Created node: {node_info.get('class_name')}")
-        except Exception as e:
-            logger.error(f"Failed to create node: {e}")
+        create_node_on_graph(
+            self._graph,
+            self._registry,
+            node_info.get("full_path", ""),
+        )
 
     def refresh_nodes(self, nodes: list[dict[str, Any]]) -> None:
         """Refresh the palette with new node list.
