@@ -4,7 +4,7 @@ This module provides CuvisNodeAdapter - a NodeGraphQt BaseNode subclass
 that wraps cuvis-ai node information for visual editing.
 """
 
-from typing import Any
+from typing import Any, ClassVar, TypedDict, cast
 
 from NodeGraphQt import BaseNode
 
@@ -17,6 +17,60 @@ from .port_helpers import create_input_port, create_output_port
 
 
 DEFAULT_NODE_COLOR = (100, 100, 100, 255)  # fallback for NodeCategory.UNSPECIFIED
+
+
+class NodeInfoDict(TypedDict, total=False):
+    """Shape of a node-info dict as it crosses the gRPC boundary.
+
+    All fields are optional (``total=False``) because proto3 defaults make any
+    field omissible. ``tags`` and ``category`` stay as raw proto-wire ints so an
+    unknown enum value from a forward-compat server doesn't blow up at the dict
+    construction site — conversion to ``NodeTag`` / ``NodeCategory`` happens at
+    render time, where unknown ids are dropped silently.
+
+    ``input_specs`` / ``output_specs`` accept either a raw dict or an already-
+    constructed :class:`PortSpec`; :func:`_parse_port_spec` handles both.
+    """
+
+    class_name: str
+    full_path: str
+    source: str
+    plugin_name: str
+    input_specs: list[dict[str, Any] | PortSpec]
+    output_specs: list[dict[str, Any] | PortSpec]
+    category: int
+    tags: list[int]
+    icon_svg: bytes
+    hparams: dict[str, Any]
+
+
+def _parse_shape(shape_data: object) -> tuple[int | str, ...]:
+    """Normalize a shape value, which may arrive as list / str / tuple from gRPC."""
+    if isinstance(shape_data, list):
+        return tuple(cast(list[int | str], shape_data))
+    if isinstance(shape_data, str):
+        return tuple(
+            int(x.strip()) if x.strip().lstrip("-").isdigit() else x.strip()
+            for x in shape_data.strip("[]").split(",")
+            if x.strip()
+        )
+    if isinstance(shape_data, tuple):
+        return cast(tuple[int | str, ...], shape_data)
+    return ()
+
+
+def _parse_port_spec(spec_data: dict[str, Any] | PortSpec) -> tuple[str, PortSpec]:
+    """Normalize a raw port-spec entry from gRPC into ``(name, PortSpec)``."""
+    if isinstance(spec_data, PortSpec):
+        return "unknown", spec_data
+    port_name = spec_data.get("name", "unknown")
+    spec = PortSpec(
+        dtype=spec_data.get("dtype", "any"),
+        shape=_parse_shape(spec_data.get("shape", [])),
+        description=spec_data.get("description", ""),
+        optional=spec_data.get("optional", False),
+    )
+    return port_name, spec
 
 
 def category_color(category: NodeCategory) -> tuple[int, int, int, int]:
@@ -46,6 +100,11 @@ class CuvisNodeAdapter(BaseNode):
     # NodeGraphQt requires these class attributes
     __identifier__ = "cuvis_ai"
     NODE_NAME = "CuvisNode"
+
+    # Populated by ``create_node_class`` on each dynamic subclass; the dynamic
+    # ``__init__`` reads ``self.__class__._node_info`` so the binding is class-
+    # attribute-driven rather than closure-captured.
+    _node_info: ClassVar[NodeInfoDict] = {}
 
     def __init__(self) -> None:
         """Initialize the node adapter."""
@@ -134,7 +193,7 @@ class CuvisNodeAdapter(BaseNode):
         """Raw SVG bytes for the node icon; b'' when absent."""
         return self._cuvis_icon_svg
 
-    def configure_from_node_info(self, node_info: dict[str, Any]) -> None:
+    def configure_from_node_info(self, node_info: NodeInfoDict) -> None:
         """Configure this adapter from node info returned by gRPC.
 
         Args:
@@ -166,69 +225,13 @@ class CuvisNodeAdapter(BaseNode):
         r, g, b, _ = category_color(self._cuvis_category)
         self.set_color(r, g, b)
 
-        # Create input ports
         for spec_data in node_info.get("input_specs", []):
-            if isinstance(spec_data, dict):
-                # Extract port name separately - PortSpec doesn't have a name field
-                port_name = spec_data.get("name", "unknown")
-                # Create PortSpec with only the fields it supports
-                shape_data = spec_data.get("shape", [])
-                if isinstance(shape_data, list):
-                    shape = tuple(shape_data)
-                elif isinstance(shape_data, str):
-                    # Parse string representation like "[-1, -1]"
-                    shape = tuple(
-                        int(x.strip()) if x.strip().lstrip("-").isdigit() else x.strip()
-                        for x in shape_data.strip("[]").split(",")
-                        if x.strip()
-                    )
-                else:
-                    shape = shape_data if isinstance(shape_data, tuple) else ()
-
-                spec = PortSpec(
-                    dtype=spec_data.get("dtype", "any"),
-                    shape=shape,
-                    description=spec_data.get("description", ""),
-                    optional=spec_data.get("optional", False),
-                )
-            else:
-                # Already a PortSpec object, need to get name from context
-                port_name = "unknown"
-                spec = spec_data
-
+            port_name, spec = _parse_port_spec(spec_data)
             self._cuvis_input_specs[port_name] = spec
             create_input_port(self, port_name, spec)
 
-        # Create output ports
         for spec_data in node_info.get("output_specs", []):
-            if isinstance(spec_data, dict):
-                # Extract port name separately - PortSpec doesn't have a name field
-                port_name = spec_data.get("name", "unknown")
-                # Create PortSpec with only the fields it supports
-                shape_data = spec_data.get("shape", [])
-                if isinstance(shape_data, list):
-                    shape = tuple(shape_data)
-                elif isinstance(shape_data, str):
-                    # Parse string representation like "[-1, -1]"
-                    shape = tuple(
-                        int(x.strip()) if x.strip().lstrip("-").isdigit() else x.strip()
-                        for x in shape_data.strip("[]").split(",")
-                        if x.strip()
-                    )
-                else:
-                    shape = shape_data if isinstance(shape_data, tuple) else ()
-
-                spec = PortSpec(
-                    dtype=spec_data.get("dtype", "any"),
-                    shape=shape,
-                    description=spec_data.get("description", ""),
-                    optional=spec_data.get("optional", False),
-                )
-            else:
-                # Already a PortSpec object, need to get name from context
-                port_name = "unknown"
-                spec = spec_data
-
+            port_name, spec = _parse_port_spec(spec_data)
             self._cuvis_output_specs[port_name] = spec
             create_output_port(self, port_name, spec)
 
@@ -278,49 +281,37 @@ class CuvisNodeAdapter(BaseNode):
         return self._cuvis_hparams.get(key, default)
 
 
-def create_node_class(node_info: dict[str, Any]) -> type[BaseNode]:
+def create_node_class(node_info: NodeInfoDict) -> type[BaseNode]:
     """Dynamically create a NodeGraphQt node class for a cuvis-ai node.
 
-    NodeGraphQt requires unique node classes for the node palette.
-    This function creates a subclass of CuvisNodeAdapter with the
-    proper identifier and name for each cuvis-ai node type.
+    NodeGraphQt requires unique node classes for the node palette. This
+    function creates a subclass of :class:`CuvisNodeAdapter` whose ``__init__``
+    auto-configures the instance from the per-class ``_node_info`` attribute.
 
-    Args:
-        node_info: Node information dictionary
-
-    Returns:
-        A new subclass of CuvisNodeAdapter
+    The ``__init__`` reads ``self.__class__._node_info`` rather than closing
+    over ``node_info``, so the binding is explicit and visible — a future
+    "simplification" that moves ``node_info`` outside the loop body cannot
+    silently break the dynamic class.
     """
     class_name = node_info.get("class_name", "Unknown")
     full_path = node_info.get("full_path", "")
-
-    # Create identifier from full path (dots to underscores)
-    # NodeGraphQt uses: __identifier__ + "." + NODE_NAME
-    # So for full_path "cuvis_ai.node.data.LentilsAnomalyDataNode",
-    # we want identifier "cuvis_ai_node_data_LentilsAnomalyDataNode"
+    # NodeGraphQt composes ``__identifier__ + "." + NODE_NAME`` for type lookup.
     identifier = full_path.replace(".", "_")
 
-    # Create the node class dynamically
-    node_class = type(
+    def __init__(self: CuvisNodeAdapter) -> None:
+        CuvisNodeAdapter.__init__(self)
+        self.configure_from_node_info(self.__class__._node_info)
+
+    return type(
         f"Cuvis_{class_name}",
         (CuvisNodeAdapter,),
         {
-            "__identifier__": identifier,  # Already includes full path as underscores
+            "__identifier__": identifier,
             "NODE_NAME": class_name,
             "_node_info": node_info,
+            "__init__": __init__,
         },
     )
-
-    # Override __init__ to auto-configure
-    original_init = node_class.__init__
-
-    def new_init(self: CuvisNodeAdapter) -> None:
-        original_init(self)
-        self.configure_from_node_info(node_info)
-
-    node_class.__init__ = new_init  # type: ignore
-
-    return node_class
 
 
 class NodeRegistry:
@@ -332,10 +323,10 @@ class NodeRegistry:
 
     def __init__(self) -> None:
         """Initialize the registry."""
-        self._nodes: dict[str, dict[str, Any]] = {}
+        self._nodes: dict[str, NodeInfoDict] = {}
         self._node_classes: dict[str, type[BaseNode]] = {}
 
-    def register_node(self, node_info: dict[str, Any]) -> None:
+    def register_node(self, node_info: NodeInfoDict) -> None:
         """Register a node type.
 
         Args:
@@ -348,7 +339,7 @@ class NodeRegistry:
         self._nodes[full_path] = node_info
         self._node_classes[full_path] = create_node_class(node_info)
 
-    def register_nodes(self, nodes: list[dict[str, Any]]) -> None:
+    def register_nodes(self, nodes: list[NodeInfoDict]) -> None:
         """Register multiple node types.
 
         Args:
@@ -357,7 +348,7 @@ class NodeRegistry:
         for node_info in nodes:
             self.register_node(node_info)
 
-    def get_node_info(self, class_path: str) -> dict[str, Any] | None:
+    def get_node_info(self, class_path: str) -> NodeInfoDict | None:
         """Get node info by class path.
 
         Args:
@@ -379,7 +370,7 @@ class NodeRegistry:
         """
         return self._node_classes.get(class_path)
 
-    def get_all_nodes(self) -> list[dict[str, Any]]:
+    def get_all_nodes(self) -> list[NodeInfoDict]:
         """Get all registered node infos.
 
         Returns:
@@ -387,7 +378,7 @@ class NodeRegistry:
         """
         return list(self._nodes.values())
 
-    def get_nodes_by_source(self, source: str) -> list[dict[str, Any]]:
+    def get_nodes_by_source(self, source: str) -> list[NodeInfoDict]:
         """Get nodes filtered by source.
 
         Args:
@@ -398,7 +389,7 @@ class NodeRegistry:
         """
         return [info for info in self._nodes.values() if info.get("source") == source]
 
-    def get_nodes_by_plugin(self, plugin_name: str) -> list[dict[str, Any]]:
+    def get_nodes_by_plugin(self, plugin_name: str) -> list[NodeInfoDict]:
         """Get nodes from a specific plugin.
 
         Args:
@@ -410,8 +401,8 @@ class NodeRegistry:
         return [info for info in self._nodes.values() if info.get("plugin_name") == plugin_name]
 
     def group_by_category(
-        self, nodes: list[dict[str, Any]] | None = None
-    ) -> dict[NodeCategory, list[dict[str, Any]]]:
+        self, nodes: list[NodeInfoDict] | None = None
+    ) -> dict[NodeCategory, list[NodeInfoDict]]:
         """Group nodes by NodeCategory.
 
         Args:
@@ -421,7 +412,7 @@ class NodeRegistry:
             Dict keyed by NodeCategory; categories with zero nodes are absent.
         """
         source = nodes if nodes is not None else list(self._nodes.values())
-        result: dict[NodeCategory, list[dict[str, Any]]] = {}
+        result: dict[NodeCategory, list[NodeInfoDict]] = {}
         for info in source:
             cat = proto_to_node_category(info.get("category", 0))
             result.setdefault(cat, []).append(info)

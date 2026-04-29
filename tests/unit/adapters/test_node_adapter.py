@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock
 
+import pytest
 
 from cuvis_ai_schemas.enums import NodeCategory, NodeTag
 from cuvis_ai_schemas.extensions.ui.node_display import CATEGORY_STYLES, TAG_STYLES
@@ -9,11 +10,14 @@ from cuvis_ai_schemas.grpc.conversions import (
     node_category_to_proto,
     node_tag_to_proto,
 )
+from cuvis_ai_schemas.pipeline.ports import PortSpec
 
 from cuvis_ai_ui.adapters.node_adapter import (
     CuvisNodeAdapter,
     DEFAULT_NODE_COLOR,
     NodeRegistry,
+    _parse_port_spec,
+    _parse_shape,
     category_color,
     create_node_class,
     tag_chip_color,
@@ -604,3 +608,101 @@ def test_node_registry_contains(node_registry):
     """Test checking if node is registered."""
     assert "cuvis_ai.node.normalization.MinMaxNormalizer" in node_registry
     assert "nonexistent.path" not in node_registry
+
+
+@pytest.mark.parametrize(
+    "shape_in, expected",
+    [
+        ([3, 224, 224], (3, 224, 224)),
+        ("[-1, -1]", (-1, -1)),
+        ((1, 2, 3), (1, 2, 3)),
+        ([], ()),
+        # _parse_shape uses ``object`` typing so it can absorb unexpected runtime
+        # values like None and fall through to the empty-tuple default; this
+        # pins the runtime contract independent of the typing contract.
+        (None, ()),
+        ("[1, b, -1]", (1, "b", -1)),
+    ],
+)
+def test_parse_shape_handles_list_str_tuple_and_unexpected(shape_in, expected):
+    assert _parse_shape(shape_in) == expected
+
+
+def test_parse_port_spec_dict_with_list_shape():
+    name, spec = _parse_port_spec(
+        {"name": "x", "dtype": "float32", "shape": [3, 224, 224], "optional": False}
+    )
+    assert name == "x"
+    assert spec.dtype == "float32"
+    assert spec.shape == (3, 224, 224)
+    assert spec.optional is False
+
+
+def test_parse_port_spec_dict_with_string_shape():
+    name, spec = _parse_port_spec({"name": "y", "shape": "[-1, -1]"})
+    assert name == "y"
+    assert spec.shape == (-1, -1)
+
+
+def test_parse_port_spec_dict_with_tuple_shape():
+    name, spec = _parse_port_spec({"name": "z", "shape": (1, 2)})
+    assert name == "z"
+    assert spec.shape == (1, 2)
+
+
+def test_parse_port_spec_passes_raw_portspec_through():
+    raw = PortSpec(dtype="any", shape=(), description="d", optional=True)
+    name, spec = _parse_port_spec(raw)
+    assert name == "unknown"
+    assert spec is raw  # identity: the existing PortSpec is reused, not rebuilt
+
+
+def test_parse_port_spec_dict_missing_optional_fields():
+    name, spec = _parse_port_spec({})
+    assert name == "unknown"
+    assert spec.dtype == "any"
+    assert spec.shape == ()
+    assert spec.description == ""
+    assert spec.optional is False
+
+
+def test_node_class_init_uses_class_attribute_node_info(qapp):
+    """The dynamic ``__init__`` reads ``self.__class__._node_info`` rather than
+    closing over the dict captured at class creation. This test pins that
+    contract: replacing the class attribute with a fresh dict before the next
+    instantiation must change what ``configure_from_node_info`` sees.
+    """
+    info_a = {
+        "class_name": "A",
+        "full_path": "x.A",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
+    }
+    cls = create_node_class(info_a)
+
+    instance_a = cls()
+    assert instance_a.cuvis_class_name == "A"
+
+    # Replace the class attribute entirely with a fresh dict (not in-place
+    # mutation, which a closure over info_a would also see). A closure-captured
+    # __init__ would still configure from info_a here; the class-attr __init__
+    # picks up info_b.
+    info_b = {
+        "class_name": "B",
+        "full_path": "x.B",
+        "source": "builtin",
+        "input_specs": [],
+        "output_specs": [],
+        "category": 0,
+        "tags": [],
+        "icon_svg": b"",
+    }
+    cls._node_info = info_b
+    instance_b = cls()
+
+    assert instance_b.cuvis_class_name == "B"
+    assert instance_b.cuvis_class_path == "x.B"
