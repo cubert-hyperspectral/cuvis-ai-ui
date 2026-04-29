@@ -153,7 +153,7 @@ skips = ["B101"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
-cuvis-ai-schemas = { path = "D:\\code-repos\\cuvis-ai-schemas\\schemas-icons", editable = true }
+# cuvis-ai-schemas = { path = "../../cuvis-ai-schemas/schemas-icons", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
