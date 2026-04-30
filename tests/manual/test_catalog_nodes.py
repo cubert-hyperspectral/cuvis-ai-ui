@@ -12,7 +12,7 @@ from cuvis_ai_ui.grpc.client import CuvisAIClient
 
 def main():
     print("=" * 60)
-    print("Cuvis-AI Catalog Node Loading (via gRPC)")
+    print("Cuvis.AI Catalog Node Loading (via gRPC)")
     print("=" * 60)
 
     manifest_path = Path(__file__).parent / "cuvis_ai_catalog.yaml"
