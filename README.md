@@ -1,9 +1,13 @@
 # Cuvis.AI UI
 
-[![CI Status](https://github.com/cubert-hyperspectral/cuvis-ai-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/cubert-hyperspectral/cuvis-ai-ui/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/cubert-hyperspectral/cuvis-ai-ui/branch/main/graph/badge.svg)](https://codecov.io/gh/cubert-hyperspectral/cuvis-ai-ui)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![CI][ci-badge]][ci-link]
+[![codecov][cov-badge]][cov-link]
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](LICENSE)
+
+[ci-badge]: https://img.shields.io/github/actions/workflow/status/cubert-hyperspectral/cuvis-ai-ui/ci.yml?style=flat-square&logo=githubactions&logoColor=white&label=CI
+[ci-link]: https://github.com/cubert-hyperspectral/cuvis-ai-ui/actions/workflows/ci.yml
+[cov-badge]: https://img.shields.io/codecov/c/github/cubert-hyperspectral/cuvis-ai-ui?style=flat-square&logo=codecov&logoColor=white
+[cov-link]: https://codecov.io/gh/cubert-hyperspectral/cuvis-ai-ui
 
 Visual pipeline editor for [cuvis-ai](https://github.com/cubert-hyperspectral/cuvis-ai). Build, edit, and manage hyperspectral processing pipelines through a drag-and-drop interface connected to a cuvis-ai-core gRPC server.
 
