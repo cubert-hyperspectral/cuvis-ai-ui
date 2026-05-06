@@ -13,12 +13,9 @@ PACKAGE_DIR = PROJECT_ROOT / "cuvis_ai_ui"
 LAUNCHER = Path(SPECPATH) / "launcher.py"
 ICON_FILE = Path(SPECPATH) / "logo.ico"
 
-# cuvis-ai-schemas is an editable local dependency that PyInstaller cannot
-# discover automatically.  Locate it relative to the project root (matches
-# the uv source path ../../cuvis-ai-schemas) and add it to the search path.
-SCHEMAS_ROOT = PROJECT_ROOT.parent.parent / "cuvis-ai-schemas"
-
-# collect_all gathers all submodules, data files, and binaries for a package.
+# cuvis-ai-schemas ships from PyPI (see pyproject.toml). collect_all gathers
+# all submodules, data files, and binaries from the installed package — works
+# whether the dep is the PyPI release or a local editable override.
 schemas_datas, schemas_binaries, schemas_hiddenimports = collect_all("cuvis_ai_schemas")
 
 # Remove torch and related packages that collect_all pulls in via
@@ -114,7 +111,7 @@ excludes = [
 # --- Analysis ----------------------------------------------------------------
 a = Analysis(
     [str(LAUNCHER)],
-    pathex=[str(PROJECT_ROOT), str(SCHEMAS_ROOT)],
+    pathex=[str(PROJECT_ROOT)],
     binaries=schemas_binaries,
     datas=datas,
     hiddenimports=hiddenimports + schemas_hiddenimports,

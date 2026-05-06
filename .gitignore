@@ -59,6 +59,7 @@ build/
 installer/Output/
 installer/logo.ico
 installer/run_iscc.bat
+installer/payload/
 
 # OS
 .DS_Store
