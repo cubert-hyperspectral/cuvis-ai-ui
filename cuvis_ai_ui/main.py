@@ -4,6 +4,7 @@ This module provides the main entry point for the cuvis-visualizer command.
 Launches the Qt application with NodeGraphQt canvas.
 """
 
+import socket
 import sys
 from pathlib import Path
 
@@ -23,6 +24,15 @@ from .settings import (
     write_manifest_temp,
 )
 from .widgets import NodePalette, PluginManagerDialog, PropertyEditor
+
+
+def _server_is_listening(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Fast TCP probe so we can skip the gRPC retry loop when no server is up."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def main() -> None:
@@ -50,7 +60,7 @@ def main() -> None:
     server_manager: ServerManager | None = None
 
     # Auto-start local server if configured (only in frozen/installed builds)
-    auto_start = conn.get("auto_start", True) and getattr(sys, "frozen", False)
+    auto_start = conn.get("auto_start", False) and getattr(sys, "frozen", False)
     if conn["mode"] == "local" and auto_start:
         server_manager = ServerManager(port=conn["port"])
         server_manager.start()
@@ -67,26 +77,42 @@ def main() -> None:
                 f"Check connection settings via Tools → Connect to Server.{detail_text}",
             )
 
-    # Connect to gRPC server
+    # Connect to gRPC server. Probe first so the GUI doesn't block on the
+    # gRPC retry loop when no server is listening.
     host = "localhost" if conn["mode"] == "local" else conn["host"]
     port = conn["port"]
     client = None
-    try:
-        client = CuvisAIClient(host=host, port=port)
-        client.connect()
-        logger.info(f"Connected to gRPC server at {host}:{port}, session: {client.session_id}")
-    except Exception as e:
-        logger.warning(f"Failed to connect to gRPC server: {e}")
+    if not _server_is_listening(host, port):
+        logger.warning(f"No server listening on {host}:{port}; skipping connect.")
         QMessageBox.warning(
             None,
-            "Connection Warning",
-            f"Failed to connect to cuvis-ai-core gRPC server at {host}:{port}:\n{e}\n\n"
-            "You can still view and edit pipelines, but cannot:\n"
-            "- Load node catalog from server\n"
-            "- Run inference or training\n\n"
-            "Check connection settings via Tools → Connect to Server.",
+            "Server Not Running",
+            f"No cuvis-ai-core server is listening on {host}:{port}.\n\n"
+            "Start the server first:\n"
+            "  Start menu → Cuvis.AI UI → Cuvis.AI Server\n"
+            "  (the tray icon shows when it is ready)\n\n"
+            "Then restart Cuvis.AI UI, or open Tools → Connect to Server "
+            "to retry.\n\n"
+            "You can still view and edit pipelines without a server, but "
+            "the node catalog, inference, and training all require it.",
         )
-        client = None
+    else:
+        try:
+            client = CuvisAIClient(host=host, port=port)
+            client.connect()
+            logger.info(f"Connected to gRPC server at {host}:{port}, session: {client.session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to connect to gRPC server: {e}")
+            QMessageBox.warning(
+                None,
+                "Connection Failed",
+                f"A process is listening on {host}:{port} but the gRPC handshake "
+                f"failed:\n{e}\n\n"
+                "If you just started the server, give it a few seconds for "
+                "torch + CUDA to finish loading, then use Tools → Connect to "
+                "Server to retry.",
+            )
+            client = None
 
     # Create main window
     window = MainWindow(client=client)
@@ -174,28 +200,36 @@ def main() -> None:
 
     # Handle palette refresh
     def on_refresh_requested() -> None:
-        if client is not None:
-            try:
-                nodes = client.list_available_nodes()
-                nodes = enrich_node_list(nodes)
-                palette.refresh_nodes(nodes)
-                window.node_registry.register_nodes(nodes)
-                window.node_registry.register_with_graph(window.graph)
-            except Exception as e:
-                logger.error(f"Failed to refresh nodes: {e}")
-                QMessageBox.warning(window, "Refresh Failed", f"Failed to refresh node list:\n{e}")
+        current_client = window.client
+        if current_client is None:
+            return
+        try:
+            nodes = current_client.list_available_nodes()
+            nodes = enrich_node_list(nodes)
+            palette.refresh_nodes(nodes)
+            window.node_registry.register_nodes(nodes)
+            window.node_registry.register_with_graph(window.graph)
+        except Exception as e:
+            logger.error(f"Failed to refresh nodes: {e}")
+            QMessageBox.warning(window, "Refresh Failed", f"Failed to refresh node list:\n{e}")
 
     palette.refresh_requested.connect(on_refresh_requested)
 
+    # Refresh the node catalog whenever a (re)connect succeeds.
+    window.connection_status_changed.connect(
+        lambda connected: on_refresh_requested() if connected else None
+    )
+
     # Override plugin manager action
     def show_plugin_manager() -> None:
-        if client is None:
+        current_client = window.client
+        if current_client is None:
             QMessageBox.warning(
                 window, "Not Connected", "Please connect to the gRPC server to manage plugins."
             )
             return
 
-        dialog = PluginManagerDialog(client, window)
+        dialog = PluginManagerDialog(current_client, window)
         dialog.plugins_loaded.connect(lambda _: on_refresh_requested())
         dialog.exec()
 
