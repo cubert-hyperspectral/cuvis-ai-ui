@@ -56,7 +56,7 @@ class TestGetDefaultConnectionSettings:
 
     def test_auto_start(self):
         defaults = get_default_connection_settings()
-        assert defaults["auto_start"] is True
+        assert defaults["auto_start"] is False
 
     def test_expected_keys(self):
         defaults = get_default_connection_settings()
@@ -178,8 +178,8 @@ class TestLoadConnectionSettings:
 
     def test_ignores_non_bool_auto_start(self, store_file):
         store_file.write_text(json.dumps({"auto_start": 1}), encoding="utf-8")
-        # Default auto_start is True, and int(1) is not bool
-        assert load_connection_settings()["auto_start"] is True
+        # Default auto_start is False, and int(1) is not bool
+        assert load_connection_settings()["auto_start"] is False
 
     # ── merging behavior ─────────────────────────────────────────────
 
@@ -194,7 +194,7 @@ class TestLoadConnectionSettings:
         assert settings["port"] == 9999
         # Remaining keys should be defaults
         assert settings["host"] == DEFAULT_HOST
-        assert settings["auto_start"] is True
+        assert settings["auto_start"] is False
         assert settings["version"] == CONNECTION_STORE_VERSION
 
     def test_ignores_unknown_keys(self, store_file):
@@ -252,7 +252,7 @@ class TestSaveConnectionSettings:
         assert data["mode"] == "local"
         assert data["host"] == DEFAULT_HOST
         assert data["port"] == DEFAULT_PORT
-        assert data["auto_start"] is True
+        assert data["auto_start"] is False
 
     def test_creates_parent_directories(self, tmp_path, monkeypatch):
         nested = tmp_path / "deep" / "nested" / "connection.json"
