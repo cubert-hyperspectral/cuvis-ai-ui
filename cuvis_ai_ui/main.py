@@ -215,9 +215,52 @@ def main() -> None:
 
     palette.refresh_requested.connect(on_refresh_requested)
 
-    # Refresh the node catalog whenever a (re)connect succeeds.
+    def reload_session_after_connect() -> None:
+        """Re-prime a freshly connected server: load persisted plugins, then refresh nodes.
+
+        On reconnect the new server is empty, so list_available_nodes alone
+        would yield nothing — we must replay the same manifest-load that
+        startup does before listing.
+        """
+        c = window.client
+        if c is None:
+            return
+        try:
+            plugin_entries = load_plugin_entries()
+            manifest = build_manifest(plugin_entries, enabled_only=True)
+            if manifest.get("plugins"):
+                temp_path = write_manifest_temp(manifest)
+                try:
+                    result = c.load_plugins(temp_path)
+                finally:
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+                loaded = result.get("loaded_plugins", [])
+                failed = result.get("failed_plugins", [])
+                if loaded:
+                    logger.info(f"Loaded plugins after reconnect: {loaded}")
+                if failed:
+                    logger.warning(f"Failed to load some plugins after reconnect: {failed}")
+
+            nodes = c.list_available_nodes()
+            nodes = enrich_node_list(nodes)
+            logger.info(f"Retrieved {len(nodes)} nodes after reconnect")
+            window.node_registry.clear()
+            window.node_registry.register_nodes(nodes)
+            window.node_registry.register_with_graph(window.graph)
+            palette.refresh_nodes(nodes)
+        except Exception as e:
+            logger.error(f"Failed to bootstrap session after reconnect: {e}", exc_info=True)
+            QMessageBox.warning(
+                window,
+                "Refresh Failed",
+                f"Connected, but failed to reload plugins/nodes:\n{e}",
+            )
+
     window.connection_status_changed.connect(
-        lambda connected: on_refresh_requested() if connected else None
+        lambda connected: reload_session_after_connect() if connected else None
     )
 
     # Override plugin manager action
