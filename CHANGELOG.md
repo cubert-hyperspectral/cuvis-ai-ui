@@ -23,6 +23,9 @@
 - Refactored `node_adapter.configure_from_node_info`: extracted two near-identical 30-line port-spec parsing blocks into module-level `_parse_shape` and `_parse_port_spec` helpers. Typed the node-info dict via a `NodeInfoDict` `TypedDict`; `tags` and `category` stay as raw proto-wire ints so a forward-compat server cannot blow up the dict construction site.
 - Fixed `_create_node` placeholder ports for unknown classes: the loader now pre-scans the connection list, derives input/output port names referenced for each unknown class, and creates those ports on the placeholder with `dtype="any"` so the graph topology survives the load. Previously every connection touching the placeholder was silently dropped. Placeholder classes are cached by class path so multiple instances share one registered NodeGraphQt class.
 - Removed the local `cuvis-ai-schemas` editable path source; clean checkouts now resolve schemas `>=0.4.0` from PyPI.
+- Fixed reconnect dropping the node palette. `cuvis_ai_ui/main.py` now exposes `reload_session_after_connect()` which replays the plugin manifest before calling `list_available_nodes`, so the new server's catalog repopulates after a Tools → Connect to Server reconnection (previously the palette went empty because the new server started fresh).
+- Changed `requires-python` in `pyproject.toml` from `<3.12` to `<3.14`, so cuvis-ai-ui can be installed and developed on CPython 3.12 and 3.13 as well as 3.11.
+- Bumped minimum versions of runtime / build dependencies: `PySide6 >=6.11.0`, `NodeGraphQt >=0.6.44`, `matplotlib >=3.10.8`, `loguru >=0.7.3`, `grpcio-tools >=1.80.0`, `setuptools-scm >=10.0.5`, `setuptools >=82.0.1`, `pip-licenses >=5.5.5`, `cyclonedx-bom >=7.3.0`, `bandit >=1.9.4`. Bumped CI actions: `softprops/action-gh-release v3`, `codecov/codecov-action v6`, `actions/download-artifact v8`.
 
 ## 0.1.0
 
