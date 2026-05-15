@@ -29,7 +29,7 @@ classifiers = [
 dependencies = [
     # Node graph visualization
     "NodeGraphQt>=0.6.0",
-    "PySide6>=6.5.0",
+    "PySide6>=6.11.0",
     # gRPC client (matches <fv<g-core gRPC versions)
     "grpcio>=1.56.0",
     "protobuf>=4.25.0",
