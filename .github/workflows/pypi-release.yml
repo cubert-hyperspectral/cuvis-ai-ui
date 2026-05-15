@@ -83,6 +83,67 @@ jobs:
             sbom.cdx.json
             licenses.md
 
+  windows-installer:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout cuvis-ai-ui
+        uses: actions/checkout@v6
+        with:
+          path: cuvis-ai-ui/cuvis-ai-ui
+          fetch-depth: 0
+
+      - name: Read pinned cuvis-ai-core version
+        id: core-ref
+        shell: pwsh
+        working-directory: cuvis-ai-ui/cuvis-ai-ui
+        run: |
+          $ref = (Get-Content .cuvis-ai-core-version -Raw).Trim()
+          "ref=$ref" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Pinned cuvis-ai-core ref: $ref"
+
+      - name: Checkout cuvis-ai-core (sibling)
+        uses: actions/checkout@v6
+        with:
+          repository: cubert-hyperspectral/cuvis-ai-core
+          ref: ${{ steps.core-ref.outputs.ref }}
+          path: cuvis-ai-core/cuvis-ai-core
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install UI deps
+        working-directory: cuvis-ai-ui/cuvis-ai-ui
+        run: uv sync --extra dev
+
+      - name: Ensure Inno Setup 6 is available
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") -and `
+              -not (Test-Path "C:\Program Files\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build Windows installer
+        working-directory: cuvis-ai-ui/cuvis-ai-ui
+        shell: cmd
+        run: installer\build.bat
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: cuvis-ai-ui/cuvis-ai-ui/installer/Output/cuvis-ai-ui-setup-*.exe
+          if-no-files-found: error
+
   publish-testpypi:
     name: Publish to TestPyPI
     needs: build-and-validate
@@ -126,7 +187,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: publish-pypi
+    needs: [publish-pypi, windows-installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,6 +204,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: reports
+          path: dist/
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-installer
           path: dist/
 
       - name: Extract release notes
@@ -163,5 +230,6 @@ jobs:
             dist/*.tar.gz
             dist/sbom.cdx.json
             dist/licenses.md
+            dist/cuvis-ai-ui-setup-*.exe
           body_path: release_notes.md
           generate_release_notes: true
