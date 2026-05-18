@@ -187,7 +187,12 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [publish-pypi, windows-installer]
+    # Independent of publish-pypi/publish-testpypi: trusted-publisher auth is
+    # not yet configured on PyPI / TestPyPI, so those jobs fail. We still want
+    # the GitHub Release with the Windows installer + wheel + tarball to be
+    # cut from every v*.*.* tag. Re-add `publish-pypi` to `needs` once
+    # trusted publishers are configured.
+    needs: [build-and-validate, windows-installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write
