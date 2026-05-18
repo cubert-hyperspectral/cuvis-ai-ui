@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 0.2.0 - 2026-05-18
 
 - Added a `windows-installer` job to `.github/workflows/pypi-release.yml` that builds `cuvis-ai-ui-setup-<version>.exe` on `windows-latest` and attaches it to the GitHub Release alongside the wheel and tarball. The job invokes `installer\build.bat` unchanged; the `cuvis-ai-core` revision used for the build is pinned in a new `.cuvis-ai-core-version` file at the repo root (initial pin: `v0.6.0`).
 - Added an opt-out checkbox to the Inno Setup wizard: **"Install the local cuvis-ai-core gRPC server (~3 GB download)"**. Unchecking it skips the bootstrap [Run] step and the `Cuvis.AI Server` Start Menu shortcut, leaving only the UI (useful when the user just wants to connect to a remote server). A new **"Setup local server"** Start Menu shortcut re-invokes `bootstrap.ps1` so users who opted out at install time can complete the setup later. The 3.5 MB cuvis-ai-core source + scripts are always shipped so the manual run is one click away.
