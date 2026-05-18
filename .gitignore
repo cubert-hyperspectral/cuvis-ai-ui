@@ -26,6 +26,11 @@ ENV/
 env/
 .venv
 
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
 # IDE
 .vscode/
 .idea/
