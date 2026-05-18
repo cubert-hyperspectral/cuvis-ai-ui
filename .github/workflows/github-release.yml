@@ -1,4 +1,4 @@
-name: PyPI Release
+name: GitHub Release
 
 on:
   push:
@@ -144,54 +144,8 @@ jobs:
           path: cuvis-ai-ui/cuvis-ai-ui/installer/Output/cuvis-ai-ui-setup-*.exe
           if-no-files-found: error
 
-  publish-testpypi:
-    name: Publish to TestPyPI
-    needs: build-and-validate
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/project/cuvis-ai-ui/
-    permissions:
-      id-token: write
-    steps:
-      - name: Download dist
-        uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
-
-  publish-pypi:
-    name: Publish to PyPI
-    needs: publish-testpypi
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/cuvis-ai-ui/
-    permissions:
-      id-token: write
-    steps:
-      - name: Download dist
-        uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-
   create-release:
     name: Create GitHub Release
-    # Independent of publish-pypi/publish-testpypi: trusted-publisher auth is
-    # not yet configured on PyPI / TestPyPI, so those jobs fail. We still want
-    # the GitHub Release with the Windows installer + wheel + tarball to be
-    # cut from every v*.*.* tag. Re-add `publish-pypi` to `needs` once
-    # trusted publishers are configured.
     needs: [build-and-validate, windows-installer]
     runs-on: ubuntu-latest
     permissions:
