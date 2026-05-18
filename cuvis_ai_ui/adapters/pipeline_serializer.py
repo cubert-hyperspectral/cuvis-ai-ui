@@ -33,8 +33,10 @@ from loguru import logger
 from NodeGraphQt import NodeGraph
 
 from cuvis_ai_schemas.pipeline import PipelineConfig, ConnectionConfig, NodeConfig
+from cuvis_ai_schemas.pipeline.ports import PortSpec
 
 from .node_adapter import CuvisNodeAdapter, NodeRegistry
+from .port_helpers import create_input_port, create_output_port
 
 
 class PipelineSerializer:
@@ -58,6 +60,7 @@ class PipelineSerializer:
         self._load_missing_nodes: set[str] = set()
         self._load_failed_nodes: list[str] = []
         self._load_failed_connections = 0
+        self._placeholder_class_cache: dict[str, type] = {}
 
     def from_yaml_file(self, path: str | Path, graph: NodeGraph) -> dict[str, Any]:
         """Load a pipeline from a YAML file into a NodeGraphQt graph.
@@ -113,6 +116,7 @@ class PipelineSerializer:
         self._load_missing_nodes = set()
         self._load_failed_nodes = []
         self._load_failed_connections = 0
+        self._placeholder_class_cache = {}
 
         # Validate configuration with Pydantic
         try:
@@ -127,6 +131,24 @@ class PipelineSerializer:
         # Clear existing graph
         graph.clear_session()
 
+        # Pre-scan connections so placeholder nodes for unknown classes can
+        # still receive the ports they're connected to — preserves topology
+        # when a pipeline references a plugin node that isn't registered.
+        name_to_class_path = {n.name: n.class_name for n in pipeline_config.nodes}
+        placeholder_input_ports: dict[str, set[str]] = {}
+        placeholder_output_ports: dict[str, set[str]] = {}
+        for conn in pipeline_config.connections:
+            src = self._parse_connection_string(conn.source)
+            tgt = self._parse_connection_string(conn.target)
+            if src and src[1] == "outputs":
+                cp = name_to_class_path.get(src[0])
+                if cp:
+                    placeholder_output_ports.setdefault(cp, set()).add(src[2])
+            if tgt and tgt[1] == "inputs":
+                cp = name_to_class_path.get(tgt[0])
+                if cp:
+                    placeholder_input_ports.setdefault(cp, set()).add(tgt[2])
+
         # Create nodes
         node_map: dict[str, CuvisNodeAdapter] = {}
 
@@ -136,7 +158,12 @@ class PipelineSerializer:
                 "name": node_config.name,
                 "hparams": node_config.hparams,
             }
-            node = self._create_node(node_dict, graph)
+            node = self._create_node(
+                node_dict,
+                graph,
+                input_port_hints=placeholder_input_ports.get(node_config.class_name),
+                output_port_hints=placeholder_output_ports.get(node_config.class_name),
+            )
             if node:
                 node_map[node.name()] = node
                 # Position nodes in a grid layout initially
@@ -177,13 +204,21 @@ class PipelineSerializer:
         return {}
 
     def _create_node(
-        self, node_config: dict[str, Any], graph: NodeGraph
+        self,
+        node_config: dict[str, Any],
+        graph: NodeGraph,
+        input_port_hints: set[str] | None = None,
+        output_port_hints: set[str] | None = None,
     ) -> CuvisNodeAdapter | None:
         """Create a NodeGraphQt node from configuration.
 
         Args:
             node_config: Node configuration dictionary
             graph: NodeGraphQt graph to add node to
+            input_port_hints: Input port names referenced by connections,
+                used to build placeholder ports when the class is unknown.
+            output_port_hints: Output port names referenced by connections,
+                used to build placeholder ports when the class is unknown.
 
         Returns:
             Created node or None if creation failed
@@ -200,8 +235,13 @@ class PipelineSerializer:
             logger.warning(f"Unknown node class: {class_path}")
             if class_path:
                 self._load_missing_nodes.add(class_path)
-            # Create a placeholder node
-            node_class = self._create_placeholder_class(class_path)
+            # Create a placeholder with ports inferred from the yaml's
+            # connection list so the graph topology survives the load.
+            node_class = self._create_placeholder_class(
+                class_path,
+                input_ports=input_port_hints,
+                output_ports=output_port_hints,
+            )
 
         node_type = getattr(node_class, "type_", None)
         if node_type is None:
@@ -234,17 +274,36 @@ class PipelineSerializer:
             self._load_failed_nodes.append(label)
             return None
 
-    def _create_placeholder_class(self, class_path: str) -> type:
+    def _create_placeholder_class(
+        self,
+        class_path: str,
+        input_ports: set[str] | None = None,
+        output_ports: set[str] | None = None,
+    ) -> type:
         """Create a placeholder node class for unknown node types.
+
+        Ports are inferred from connection references in the loaded yaml, so
+        a pipeline that uses a missing plugin still preserves its topology.
+        Each class_path maps to a single cached placeholder class — repeated
+        instances of the same unknown class share one class with the union
+        of port hints, satisfying NodeGraphQt's no-duplicate-type rule.
 
         Args:
             class_path: Full class path of the unknown node
+            input_ports: Input port names referenced by connections
+            output_ports: Output port names referenced by connections
 
         Returns:
             Placeholder node class
         """
+        cached = self._placeholder_class_cache.get(class_path)
+        if cached is not None:
+            return cached
+
         class_name = class_path.split(".")[-1] if "." in class_path else class_path
         identifier = class_path.replace(".", "_")
+        in_ports = frozenset(input_ports or ())
+        out_ports = frozenset(output_ports or ())
 
         class PlaceholderNode(CuvisNodeAdapter):
             __identifier__ = f"cuvis_ai.placeholder.{identifier}"
@@ -256,7 +315,26 @@ class PipelineSerializer:
                 self._cuvis_class_name = class_name
                 self.set_name(class_name)
                 self.set_color(200, 50, 50)  # Red for unknown
+                for name in sorted(in_ports):
+                    spec = PortSpec(
+                        dtype="any",
+                        shape=(),
+                        description="(inferred from pipeline connections)",
+                        optional=True,
+                    )
+                    self._cuvis_input_specs[name] = spec
+                    create_input_port(self, name, spec)
+                for name in sorted(out_ports):
+                    spec = PortSpec(
+                        dtype="any",
+                        shape=(),
+                        description="(inferred from pipeline connections)",
+                        optional=False,
+                    )
+                    self._cuvis_output_specs[name] = spec
+                    create_output_port(self, name, spec)
 
+        self._placeholder_class_cache[class_path] = PlaceholderNode
         return PlaceholderNode
 
     def _create_connection(

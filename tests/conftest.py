@@ -4,6 +4,9 @@ import pytest
 from unittest.mock import Mock
 from PySide6.QtWidgets import QApplication
 
+from cuvis_ai_schemas.enums import NodeCategory, NodeTag
+from cuvis_ai_schemas.grpc.conversions import node_category_to_proto, node_tag_to_proto
+
 from cuvis_ai_ui.adapters import NodeRegistry
 from cuvis_ai_ui.grpc.client import CuvisAIClient
 
@@ -29,7 +32,7 @@ def mock_grpc_client():
 
 @pytest.fixture
 def sample_node_info():
-    """Sample node info dictionary."""
+    """Sample node info dictionary with wire-format category and tags."""
     return {
         "class_name": "MinMaxNormalizer",
         "full_path": "cuvis_ai.node.normalization.MinMaxNormalizer",
@@ -53,6 +56,13 @@ def sample_node_info():
                 "description": "Normalized cube",
             }
         ],
+        # Wire integers — use conversion helpers, never magic ints
+        "category": node_category_to_proto(NodeCategory.TRANSFORM),
+        "tags": [
+            node_tag_to_proto(NodeTag.HYPERSPECTRAL),
+            node_tag_to_proto(NodeTag.NORMALIZATION),
+        ],
+        "icon_svg": b"",
     }
 
 

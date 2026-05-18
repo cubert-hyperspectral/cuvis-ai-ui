@@ -46,7 +46,7 @@ def _find_server_executable() -> list[str]:
             # Linux/macOS
             core_python = core_root / ".venv" / "bin" / "python"
         if core_python.exists():
-            logger.debug("Found cuvis-ai-core venv at %s", core_python)
+            logger.debug(f"Found cuvis-ai-core venv at {core_python}")
             return [str(core_python), "-m", "cuvis_ai_core.grpc.production_server"]
 
     # Fallback: try current Python (works if cuvis_ai_core is installed in UI venv)
@@ -91,13 +91,13 @@ class ServerManager:
         can still operate without a local server.
         """
         if self.is_running():
-            logger.info("Server already running (pid=%s)", self._process.pid)
+            logger.info(f"Server already running (pid={self._process.pid})")
             return
 
         cmd = _find_server_executable()
         env = {**os.environ, "GRPC_PORT": str(self._port), "LOG_FORMAT": "text"}
 
-        logger.info("Starting local gRPC server: %s (port %s)", " ".join(cmd), self._port)
+        logger.info(f"Starting local gRPC server: {' '.join(cmd)} (port {self._port})")
         try:
             self._process = subprocess.Popen(
                 cmd,
@@ -108,13 +108,12 @@ class ServerManager:
             )
         except FileNotFoundError:
             logger.warning(
-                "Server executable not found: %s. "
-                "Make sure cuvis-ai-core is installed or its venv exists.",
-                " ".join(cmd),
+                f"Server executable not found: {' '.join(cmd)}. "
+                "Make sure cuvis-ai-core is installed or its venv exists."
             )
             self._process = None
             return
-        logger.info("Server started (pid=%s)", self._process.pid)
+        logger.info(f"Server started (pid={self._process.pid})")
 
     def get_output(self) -> str:
         """Read any available stdout/stderr from the server process."""
@@ -157,26 +156,26 @@ class ServerManager:
 
         target = f"localhost:{self._port}"
         deadline = time.monotonic() + timeout
-        logger.info("Waiting for server at %s (timeout=%.0fs)...", target, timeout)
+        logger.info(f"Waiting for server at {target} (timeout={timeout:.0f}s)...")
 
         while time.monotonic() < deadline:
             if not self.is_running():
                 output = self.get_output()
-                logger.warning("Server process exited before becoming ready. Output:\n%s", output)
+                logger.warning(f"Server process exited before becoming ready. Output:\n{output}")
                 self._last_error = output
                 return False
             try:
                 channel = grpc.insecure_channel(target)
                 grpc.channel_ready_future(channel).result(timeout=poll_interval)
                 channel.close()
-                logger.info("Server is ready at %s", target)
+                logger.info(f"Server is ready at {target}")
                 return True
             except grpc.FutureTimeoutError:
                 pass
             except Exception:
                 time.sleep(poll_interval)
 
-        logger.warning("Server did not become ready within %.0fs", timeout)
+        logger.warning(f"Server did not become ready within {timeout:.0f}s")
         self._last_error = f"Timeout after {timeout}s waiting for server at {target}"
         return False
 
@@ -206,14 +205,14 @@ class ServerManager:
             return
 
         pid = self._process.pid
-        logger.info("Stopping server (pid=%s)...", pid)
+        logger.info(f"Stopping server (pid={pid})...")
 
         self._process.terminate()
         try:
             self._process.wait(timeout=grace)
-            logger.info("Server stopped gracefully (pid=%s)", pid)
+            logger.info(f"Server stopped gracefully (pid={pid})")
         except subprocess.TimeoutExpired:
-            logger.warning("Server did not stop in %.0fs, killing (pid=%s)", grace, pid)
+            logger.warning(f"Server did not stop in {grace:.0f}s, killing (pid={pid})")
             self._process.kill()
             self._process.wait(timeout=5)
 

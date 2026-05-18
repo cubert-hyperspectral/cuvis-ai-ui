@@ -348,15 +348,15 @@ def test_list_nodes_not_connected_raises_error():
 @patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_list_available_nodes_success(mock_stub_class, mock_channel, mock_grpc_stub):
     """Test listing available nodes successfully."""
+    from cuvis_ai_schemas.grpc.v1 import cuvis_ai_pb2
 
-    # Mock node info in response
-    mock_node = Mock()
-    mock_node.class_name = "MinMaxNormalizer"
-    mock_node.full_path = "cuvis_ai.node.normalization.MinMaxNormalizer"
-    mock_node.source = "builtin"
-    mock_node.plugin_name = ""
-    mock_node.input_specs = {}
-    mock_node.output_specs = {}
+    # Use a real NodeInfo so .tags is safely iterable and .category / .icon_svg have proto3 defaults
+    mock_node = cuvis_ai_pb2.NodeInfo(
+        class_name="MinMaxNormalizer",
+        full_path="cuvis_ai.node.normalization.MinMaxNormalizer",
+        source="builtin",
+        plugin_name="",
+    )
 
     mock_response = Mock()
     mock_response.nodes = [mock_node]
@@ -373,6 +373,72 @@ def test_list_available_nodes_success(mock_stub_class, mock_channel, mock_grpc_s
     assert len(nodes) == 1
     assert nodes[0]["class_name"] == "MinMaxNormalizer"
     assert nodes[0]["full_path"] == "cuvis_ai.node.normalization.MinMaxNormalizer"
+
+
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
+def test_list_available_nodes_forwards_metadata_fields(
+    mock_stub_class, mock_channel, mock_grpc_stub
+):
+    """category, tags, and icon_svg are forwarded from proto into the returned dict."""
+    from cuvis_ai_schemas.grpc.v1 import cuvis_ai_pb2
+    from cuvis_ai_schemas.enums import NodeCategory, NodeTag
+    from cuvis_ai_schemas.grpc.conversions import node_category_to_proto, node_tag_to_proto
+
+    cat_wire = node_category_to_proto(NodeCategory.SOURCE)
+    tag_wire = node_tag_to_proto(NodeTag.HYPERSPECTRAL)
+
+    mock_node = cuvis_ai_pb2.NodeInfo(
+        class_name="HsiLoader",
+        full_path="cuvis_ai.node.data.HsiLoader",
+        source="builtin",
+        category=cat_wire,
+        tags=[tag_wire],
+        icon_svg=b"<svg/>",
+    )
+
+    mock_response = Mock()
+    mock_response.nodes = [mock_node]
+    mock_grpc_stub.ListAvailableNodes.return_value = mock_response
+    mock_channel.return_value = Mock()
+    mock_stub_class.return_value = mock_grpc_stub
+
+    client = CuvisAIClient()
+    client.connect()
+
+    nodes = client.list_available_nodes()
+
+    assert nodes[0]["category"] == cat_wire
+    assert nodes[0]["tags"] == [tag_wire]
+    assert nodes[0]["icon_svg"] == b"<svg/>"
+
+
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
+def test_list_available_nodes_proto3_defaults(mock_stub_class, mock_channel, mock_grpc_stub):
+    """When a server sends no category/tags/icon_svg the proto3 defaults (0/[]/b'') pass through."""
+    from cuvis_ai_schemas.grpc.v1 import cuvis_ai_pb2
+
+    mock_node = cuvis_ai_pb2.NodeInfo(
+        class_name="OldNode",
+        full_path="cuvis_ai.node.old.OldNode",
+        source="builtin",
+    )
+
+    mock_response = Mock()
+    mock_response.nodes = [mock_node]
+    mock_grpc_stub.ListAvailableNodes.return_value = mock_response
+    mock_channel.return_value = Mock()
+    mock_stub_class.return_value = mock_grpc_stub
+
+    client = CuvisAIClient()
+    client.connect()
+
+    nodes = client.list_available_nodes()
+
+    assert nodes[0]["category"] == 0
+    assert nodes[0]["tags"] == []
+    assert nodes[0]["icon_svg"] == b""
 
 
 @patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")

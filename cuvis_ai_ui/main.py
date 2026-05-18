@@ -4,6 +4,7 @@ This module provides the main entry point for the cuvis-visualizer command.
 Launches the Qt application with NodeGraphQt canvas.
 """
 
+import socket
 import sys
 from pathlib import Path
 
@@ -23,6 +24,15 @@ from .settings import (
     write_manifest_temp,
 )
 from .widgets import NodePalette, PluginManagerDialog, PropertyEditor
+
+
+def _server_is_listening(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Fast TCP probe so we can skip the gRPC retry loop when no server is up."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def main() -> None:
@@ -50,7 +60,7 @@ def main() -> None:
     server_manager: ServerManager | None = None
 
     # Auto-start local server if configured (only in frozen/installed builds)
-    auto_start = conn.get("auto_start", True) and getattr(sys, "frozen", False)
+    auto_start = conn.get("auto_start", False) and getattr(sys, "frozen", False)
     if conn["mode"] == "local" and auto_start:
         server_manager = ServerManager(port=conn["port"])
         server_manager.start()
@@ -67,26 +77,42 @@ def main() -> None:
                 f"Check connection settings via Tools → Connect to Server.{detail_text}",
             )
 
-    # Connect to gRPC server
+    # Connect to gRPC server. Probe first so the GUI doesn't block on the
+    # gRPC retry loop when no server is listening.
     host = "localhost" if conn["mode"] == "local" else conn["host"]
     port = conn["port"]
     client = None
-    try:
-        client = CuvisAIClient(host=host, port=port)
-        client.connect()
-        logger.info(f"Connected to gRPC server at {host}:{port}, session: {client.session_id}")
-    except Exception as e:
-        logger.warning(f"Failed to connect to gRPC server: {e}")
+    if not _server_is_listening(host, port):
+        logger.warning(f"No server listening on {host}:{port}; skipping connect.")
         QMessageBox.warning(
             None,
-            "Connection Warning",
-            f"Failed to connect to cuvis-ai-core gRPC server at {host}:{port}:\n{e}\n\n"
-            "You can still view and edit pipelines, but cannot:\n"
-            "- Load node catalog from server\n"
-            "- Run inference or training\n\n"
-            "Check connection settings via Tools → Connect to Server.",
+            "Server Not Running",
+            f"No cuvis-ai-core server is listening on {host}:{port}.\n\n"
+            "Start the server first:\n"
+            "  Start menu → Cuvis.AI UI → Cuvis.AI Server\n"
+            "  (the tray icon shows when it is ready)\n\n"
+            "Then restart Cuvis.AI UI, or open Tools → Connect to Server "
+            "to retry.\n\n"
+            "You can still view and edit pipelines without a server, but "
+            "the node catalog, inference, and training all require it.",
         )
-        client = None
+    else:
+        try:
+            client = CuvisAIClient(host=host, port=port)
+            client.connect()
+            logger.info(f"Connected to gRPC server at {host}:{port}, session: {client.session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to connect to gRPC server: {e}")
+            QMessageBox.warning(
+                None,
+                "Connection Failed",
+                f"A process is listening on {host}:{port} but the gRPC handshake "
+                f"failed:\n{e}\n\n"
+                "If you just started the server, give it a few seconds for "
+                "torch + CUDA to finish loading, then use Tools → Connect to "
+                "Server to retry.",
+            )
+            client = None
 
     # Create main window
     window = MainWindow(client=client)
@@ -174,28 +200,79 @@ def main() -> None:
 
     # Handle palette refresh
     def on_refresh_requested() -> None:
-        if client is not None:
-            try:
-                nodes = client.list_available_nodes()
-                nodes = enrich_node_list(nodes)
-                palette.refresh_nodes(nodes)
-                window.node_registry.register_nodes(nodes)
-                window.node_registry.register_with_graph(window.graph)
-            except Exception as e:
-                logger.error(f"Failed to refresh nodes: {e}")
-                QMessageBox.warning(window, "Refresh Failed", f"Failed to refresh node list:\n{e}")
+        current_client = window.client
+        if current_client is None:
+            return
+        try:
+            nodes = current_client.list_available_nodes()
+            nodes = enrich_node_list(nodes)
+            palette.refresh_nodes(nodes)
+            window.node_registry.register_nodes(nodes)
+            window.node_registry.register_with_graph(window.graph)
+        except Exception as e:
+            logger.error(f"Failed to refresh nodes: {e}")
+            QMessageBox.warning(window, "Refresh Failed", f"Failed to refresh node list:\n{e}")
 
     palette.refresh_requested.connect(on_refresh_requested)
 
+    def reload_session_after_connect() -> None:
+        """Re-prime a freshly connected server: load persisted plugins, then refresh nodes.
+
+        On reconnect the new server is empty, so list_available_nodes alone
+        would yield nothing — we must replay the same manifest-load that
+        startup does before listing.
+        """
+        c = window.client
+        if c is None:
+            return
+        try:
+            plugin_entries = load_plugin_entries()
+            manifest = build_manifest(plugin_entries, enabled_only=True)
+            if manifest.get("plugins"):
+                temp_path = write_manifest_temp(manifest)
+                try:
+                    result = c.load_plugins(temp_path)
+                finally:
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+                loaded = result.get("loaded_plugins", [])
+                failed = result.get("failed_plugins", [])
+                if loaded:
+                    logger.info(f"Loaded plugins after reconnect: {loaded}")
+                if failed:
+                    logger.warning(f"Failed to load some plugins after reconnect: {failed}")
+
+            nodes = c.list_available_nodes()
+            nodes = enrich_node_list(nodes)
+            logger.info(f"Retrieved {len(nodes)} nodes after reconnect")
+            window.node_registry.clear()
+            window.node_registry.register_nodes(nodes)
+            window.node_registry.register_with_graph(window.graph)
+            palette.refresh_nodes(nodes)
+        except Exception as e:
+            logger.error(f"Failed to bootstrap session after reconnect: {e}", exc_info=True)
+            QMessageBox.warning(
+                window,
+                "Refresh Failed",
+                f"Connected, but failed to reload plugins/nodes:\n{e}",
+            )
+
+    window.connection_status_changed.connect(
+        lambda connected: reload_session_after_connect() if connected else None
+    )
+
     # Override plugin manager action
     def show_plugin_manager() -> None:
-        if client is None:
+        current_client = window.client
+        if current_client is None:
             QMessageBox.warning(
                 window, "Not Connected", "Please connect to the gRPC server to manage plugins."
             )
             return
 
-        dialog = PluginManagerDialog(client, window)
+        dialog = PluginManagerDialog(current_client, window)
         dialog.plugins_loaded.connect(lambda _: on_refresh_requested())
         dialog.exec()
 
@@ -232,19 +309,26 @@ def test_connection() -> None:
             print("[OK] Connected to gRPC server at localhost:50051")
             print(f"[OK] Session ID: {client.session_id}")
 
-            # Load cuvis-ai catalog nodes via plugin manifest
-            manifest_path = Path(__file__).parent.parent / "cuvis_ai_catalog.yaml"
-            if manifest_path.exists():
+            # Load persisted / default plugins
+            plugin_entries = load_plugin_entries()
+            manifest = build_manifest(plugin_entries, enabled_only=True)
+            if manifest.get("plugins"):
                 print()
-                print("Loading cuvis-ai catalog nodes...")
+                print("Loading plugins...")
+                temp_path = write_manifest_temp(manifest)
                 try:
-                    result = client.load_plugins(manifest_path)
+                    result = client.load_plugins(temp_path)
                     if result["loaded_plugins"]:
                         print(f"[OK] Loaded plugins: {', '.join(result['loaded_plugins'])}")
                     if result["failed_plugins"]:
                         print(f"[WARN] Failed plugins: {', '.join(result['failed_plugins'])}")
                 except Exception as e:
                     print(f"[WARN] Plugin loading failed: {e}")
+                finally:
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
                 print()
 
             nodes = client.list_available_nodes()

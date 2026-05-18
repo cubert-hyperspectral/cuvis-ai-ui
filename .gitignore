@@ -59,6 +59,7 @@ build/
 installer/Output/
 installer/logo.ico
 installer/run_iscc.bat
+installer/payload/
 
 # OS
 .DS_Store
@@ -70,3 +71,6 @@ Thumbs.db
 .history/
 .claude/
 *.code-workspace
+.gitnexus
+CLAUDE.md
+AGENTS.md

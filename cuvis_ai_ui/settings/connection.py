@@ -20,13 +20,18 @@ def _connection_store_path():
 
 
 def get_default_connection_settings() -> dict[str, Any]:
-    """Return the default connection settings."""
+    """Return the default connection settings.
+
+    `auto_start` defaults to False so a fresh install never blocks GUI launch
+    on the bundled server's cold start. Users opt back in via the Connection
+    dialog (Tools → Connect to Server).
+    """
     return {
         "version": CONNECTION_STORE_VERSION,
         "mode": "local",
         "host": DEFAULT_HOST,
         "port": DEFAULT_PORT,
-        "auto_start": True,
+        "auto_start": False,
     }
 
 
@@ -69,7 +74,7 @@ def save_connection_settings(settings: dict[str, Any]) -> None:
         "mode": settings.get("mode", "local"),
         "host": settings.get("host", DEFAULT_HOST),
         "port": settings.get("port", DEFAULT_PORT),
-        "auto_start": settings.get("auto_start", True),
+        "auto_start": settings.get("auto_start", False),
     }
     path = _connection_store_path()
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1170,3 +1170,257 @@ def test_session_dialog_close_session_does_nothing_when_no_client(qapp):
     dialog = SessionDialog(client=None)
     # Should not crash
     dialog._close_session()
+
+
+# ---------------------------------------------------------------------------
+# Directory tab - scan + load
+# ---------------------------------------------------------------------------
+
+
+def test_scan_directory_lists_yaml_manifests(qapp, mock_grpc_client, tmp_path):
+    """Scan should list both .yaml and .yml files plus their plugin keys."""
+    (tmp_path / "a.yaml").write_text("plugins:\n  alpha:\n    repo: x\n")
+    (tmp_path / "b.yml").write_text("plugins:\n  beta:\n    repo: y\n")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+
+    dialog._scan_directory()
+
+    preview = dialog._directory_preview.toPlainText()
+    assert "a.yaml" in preview
+    assert "b.yml" in preview
+    assert "alpha" in preview
+    assert "beta" in preview
+
+
+def test_scan_directory_invalid_path(qapp, mock_grpc_client):
+    """Scan with no/invalid directory writes 'Invalid directory.'"""
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText("/nope/does/not/exist")
+
+    dialog._scan_directory()
+
+    assert "Invalid directory" in dialog._directory_preview.toPlainText()
+
+
+def test_scan_directory_no_yaml_files(qapp, mock_grpc_client, tmp_path):
+    """Scan on empty dir reports no manifests found."""
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+
+    dialog._scan_directory()
+
+    assert "No YAML files" in dialog._directory_preview.toPlainText()
+
+
+def test_scan_directory_handles_malformed_yaml(qapp, mock_grpc_client, tmp_path):
+    """A manifest with malformed YAML is annotated with '(parse error)'."""
+    (tmp_path / "bad.yaml").write_text("plugins: [: bad: :")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+
+    dialog._scan_directory()
+
+    preview = dialog._directory_preview.toPlainText()
+    assert "bad.yaml" in preview
+    assert "parse error" in preview
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.merge_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.build_manifest")
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries_from_directory")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.information")
+def test_load_directory_plugins_success_emits_signal(
+    mock_info,
+    mock_load_dir,
+    mock_build,
+    mock_temp,
+    mock_merge,
+    mock_save,
+    qtbot,
+    qapp,
+    mock_grpc_client,
+    tmp_path,
+):
+    """Happy path: directory plugins load → signal fires + persist runs."""
+    entries = [{"name": "alpha", "enabled": True, "source": "manifest", "config": {}}]
+    mock_load_dir.return_value = entries
+    mock_build.return_value = {"plugins": {"alpha": {"repo": "x"}}}
+
+    temp_file = tmp_path / "merged.yaml"
+    temp_file.touch()
+    mock_temp.return_value = str(temp_file)
+
+    mock_grpc_client.load_plugins.return_value = {
+        "loaded_plugins": ["alpha"],
+        "failed_plugins": [],
+    }
+    mock_merge.return_value = entries
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+
+    with qtbot.waitSignal(dialog.plugins_loaded, timeout=1000) as blocker:
+        dialog._load_directory_plugins()
+
+    assert blocker.args == [["alpha"]]
+    mock_grpc_client.load_plugins.assert_called_once()
+    mock_merge.assert_called_once()
+    mock_save.assert_called_once()
+    mock_info.assert_called_once()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.warning")
+def test_load_directory_plugins_invalid_directory(mock_warn, qapp, mock_grpc_client):
+    """Invalid directory aborts with a warning before any load attempt."""
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText("")
+
+    dialog._load_directory_plugins()
+
+    mock_warn.assert_called_once()
+    mock_grpc_client.load_plugins.assert_not_called()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries_from_directory")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.information")
+def test_load_directory_plugins_no_entries(
+    mock_info, mock_load_dir, qapp, mock_grpc_client, tmp_path
+):
+    """Directory with no plugin entries informs and aborts."""
+    mock_load_dir.return_value = []
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+
+    dialog._load_directory_plugins()
+
+    mock_info.assert_called_once()
+    mock_grpc_client.load_plugins.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Manifest tab - success path + partial failure
+# ---------------------------------------------------------------------------
+
+
+def _write_simple_manifest(tmp_path):
+    manifest_file = tmp_path / "plugins.yaml"
+    manifest_file.write_text("plugins:\n  foo:\n    repo: git@host:org/foo.git\n")
+    return manifest_file
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.merge_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.information")
+def test_load_manifest_plugins_success_emits_signal(
+    mock_info,
+    mock_temp,
+    mock_merge,
+    mock_save,
+    qtbot,
+    qapp,
+    mock_grpc_client,
+    tmp_path,
+):
+    """Valid manifest loads → plugins_loaded signal fires with loaded names."""
+    manifest_file = _write_simple_manifest(tmp_path)
+
+    # write_manifest_temp returns a Path-like (the manifest path .unlink()s it).
+    temp_file = tmp_path / "resolved.yaml"
+    temp_file.touch()
+    mock_temp.return_value = temp_file
+
+    mock_grpc_client.load_plugins.return_value = {
+        "loaded_plugins": ["foo"],
+        "failed_plugins": [],
+    }
+    mock_merge.return_value = []
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._manifest_path.setText(str(manifest_file))
+
+    with qtbot.waitSignal(dialog.plugins_loaded, timeout=1000) as blocker:
+        dialog._load_manifest_plugins()
+
+    assert blocker.args == [["foo"]]
+    mock_grpc_client.load_plugins.assert_called_once()
+    mock_info.assert_called_once()
+    mock_save.assert_called_once()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.warning")
+def test_load_manifest_plugins_partial_failure(
+    mock_warn, mock_temp, qapp, mock_grpc_client, tmp_path
+):
+    """A failed plugin in the manifest triggers a 'Partial Failure' warning."""
+    manifest_file = _write_simple_manifest(tmp_path)
+    temp_file = tmp_path / "resolved.yaml"
+    temp_file.touch()
+    mock_temp.return_value = temp_file
+
+    mock_grpc_client.load_plugins.return_value = {
+        "loaded_plugins": [],
+        "failed_plugins": {"foo": "import error"},
+    }
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._manifest_path.setText(str(manifest_file))
+
+    dialog._load_manifest_plugins()
+
+    mock_warn.assert_called_once()
+    assert "Partial Failure" in mock_warn.call_args[0][1]
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.critical")
+def test_load_manifest_plugins_missing_plugins_key(mock_crit, qapp, mock_grpc_client, tmp_path):
+    """Manifest without a top-level 'plugins:' key is rejected."""
+    manifest_file = tmp_path / "empty.yaml"
+    manifest_file.write_text("other_section: 1\n")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._manifest_path.setText(str(manifest_file))
+
+    dialog._load_manifest_plugins()
+
+    mock_crit.assert_called_once()
+    mock_grpc_client.load_plugins.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Browse manifest dialog
+# ---------------------------------------------------------------------------
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QFileDialog.getOpenFileName")
+def test_browse_manifest_sets_path_and_previews(mock_dlg, qapp, mock_grpc_client, tmp_path):
+    """Browsing a manifest sets the path field and writes preview content."""
+    manifest_file = tmp_path / "p.yaml"
+    manifest_file.write_text("plugins:\n  my_node:\n    repo: x\n")
+    mock_dlg.return_value = (str(manifest_file), "YAML Files (*.yaml *.yml)")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._browse_manifest()
+
+    assert dialog._manifest_path.text() == str(manifest_file)
+    assert "my_node" in dialog._manifest_preview.toPlainText()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QFileDialog.getOpenFileName")
+def test_browse_manifest_cancelled_leaves_path_unchanged(mock_dlg, qapp, mock_grpc_client):
+    """Cancelling the file dialog leaves the path field untouched."""
+    mock_dlg.return_value = ("", "")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._manifest_path.setText("kept/value.yaml")
+
+    dialog._browse_manifest()
+
+    assert dialog._manifest_path.text() == "kept/value.yaml"

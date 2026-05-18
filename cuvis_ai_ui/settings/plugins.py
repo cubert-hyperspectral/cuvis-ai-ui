@@ -18,19 +18,52 @@ def get_plugin_store_path() -> Path:
     return app_config_dir() / "plugins.json"
 
 
-def get_default_plugin_entries() -> list[dict[str, Any]]:
-    """Load the default plugins from the built-in catalog manifest."""
-    manifest_path = Path(__file__).resolve().parent.parent.parent / "cuvis_ai_catalog.yaml"
-    if not manifest_path.exists():
-        return []
+def _resolve_local_path(config: dict[str, Any], manifest_dir: Path) -> dict[str, Any]:
+    """Resolve a plugin config's ``path`` to an absolute path.
 
+    Local plugin manifests may use relative paths (e.g. ``path: "../.."``)
+    that are meant to be interpreted relative to the YAML file's location.
+    This context is lost once the manifest crosses the gRPC boundary, so we
+    resolve paths here — on the UI side — before the manifest is serialized.
+
+    Args:
+        config: Plugin config dict (may contain ``path``, ``repo``, etc.).
+        manifest_dir: Directory of the YAML file the config came from.
+
+    Returns:
+        Shallow-copied config with ``path`` replaced by its absolute
+        resolved form, or the original dict if ``path`` is missing,
+        already absolute, or not a string.
+    """
+    path_value = config.get("path")
+    if not isinstance(path_value, str):
+        return config
+
+    path_obj = Path(path_value)
+    if path_obj.is_absolute():
+        return config
+
+    resolved = dict(config)
+    resolved["path"] = str((manifest_dir / path_obj).resolve())
+    return resolved
+
+
+def _load_manifest_entries(manifest_path: Path) -> list[dict[str, Any]]:
+    """Load plugin entries from a single manifest YAML file.
+
+    Args:
+        manifest_path: Path to a plugin manifest YAML file.
+
+    Returns:
+        List of plugin entry dicts parsed from the manifest.
+    """
     try:
         import yaml
 
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = yaml.safe_load(f) or {}
     except Exception as exc:
-        logger.warning(f"Failed to read default plugin manifest: {exc}")
+        logger.warning(f"Failed to read manifest {manifest_path}: {exc}")
         return []
 
     plugins = manifest.get("plugins", {})
@@ -51,6 +84,40 @@ def get_default_plugin_entries() -> list[dict[str, Any]]:
             }
         )
     return entries
+
+
+def get_default_plugin_entries() -> list[dict[str, Any]]:
+    """Load the default plugins from the built-in catalog manifest."""
+    manifest_path = Path(__file__).resolve().parent.parent.parent / "cuvis_ai_catalog.yaml"
+    if not manifest_path.exists():
+        return []
+    return _load_manifest_entries(manifest_path)
+
+
+def load_plugin_entries_from_directory(directory: str | Path) -> list[dict[str, Any]]:
+    """Load plugin entries from all manifest files in a directory.
+
+    Scans for ``*.yaml`` and ``*.yml`` files, loads each as a plugin
+    manifest, and returns merged entries.  Later files override earlier
+    ones when plugin names collide.
+
+    Args:
+        directory: Path to directory containing manifest YAML files.
+
+    Returns:
+        Merged and deduplicated list of plugin entries.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        logger.warning(f"Plugin directory does not exist: {directory}")
+        return []
+
+    all_entries: list[dict[str, Any]] = []
+    for manifest_path in sorted(directory.glob("*.yaml")) + sorted(directory.glob("*.yml")):
+        entries = _load_manifest_entries(manifest_path)
+        all_entries.extend(entries)
+
+    return _dedupe_entries(all_entries)
 
 
 def _normalize_entry(entry: Any) -> dict[str, Any] | None:
@@ -180,11 +247,8 @@ def build_manifest(
             continue
         config = dict(normalized["config"])
         origin = normalized.get("origin")
-        path_value = config.get("path")
-        if origin and isinstance(path_value, str):
-            path_obj = Path(path_value)
-            if not path_obj.is_absolute():
-                config["path"] = str(Path(origin).parent / path_obj)
+        if origin:
+            config = _resolve_local_path(config, Path(origin).parent)
         provides = config.get("provides")
         if isinstance(provides, list) and not provides:
             config.pop("provides", None)
