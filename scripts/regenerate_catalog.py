@@ -19,9 +19,9 @@ idempotent, so re-running against an already-single-spec manifest is a no-op.
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
+import click
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -85,27 +85,45 @@ def build_manifest(src: Path, repo: str, tag: str) -> dict:
     return {"plugins": {"cuvis_ai_builtin": {"repo": repo, "tag": tag, "provides": provides}}}
 
 
-def main() -> None:
-    """Parse args, regenerate the bundled catalog, and report what was written."""
-    parser = argparse.ArgumentParser(description="Regenerate the bundled cuvis_ai_catalog.yaml.")
-    parser.add_argument(
-        "--src", type=Path, default=DEFAULT_SRC, help="upstream cuvis_ai_builtin.yaml"
-    )
-    parser.add_argument("--dst", type=Path, default=DEFAULT_DST, help="output catalog yaml")
-    parser.add_argument("--repo", default=DEFAULT_REPO, help="git repo URL for the bundled clone")
-    parser.add_argument("--tag", default=DEFAULT_TAG, help="git tag (cuvis-ai release)")
-    args = parser.parse_args()
+@click.command()
+@click.option(
+    "--src",
+    type=click.Path(path_type=Path),
+    default=DEFAULT_SRC,
+    show_default=True,
+    help="Upstream cuvis_ai_builtin.yaml to mirror.",
+)
+@click.option(
+    "--dst",
+    type=click.Path(path_type=Path),
+    default=DEFAULT_DST,
+    show_default=True,
+    help="Catalog yaml to write.",
+)
+@click.option(
+    "--repo",
+    default=DEFAULT_REPO,
+    show_default=True,
+    help="Git repo URL for the bundled clone.",
+)
+@click.option(
+    "--tag",
+    default=DEFAULT_TAG,
+    show_default=True,
+    help="Git tag (cuvis-ai release) to pin.",
+)
+def main(src: Path, dst: Path, repo: str, tag: str) -> None:
+    """Regenerate the bundled cuvis_ai_catalog.yaml from cuvis-ai's manifest."""
+    if not src.exists():
+        raise click.ClickException(f"Upstream manifest not found: {src}")
 
-    if not args.src.exists():
-        raise SystemExit(f"Upstream manifest not found: {args.src}")
-
-    manifest = build_manifest(args.src, args.repo, args.tag)
+    manifest = build_manifest(src, repo, tag)
     body = yaml.safe_dump(
         manifest, sort_keys=False, default_flow_style=False, allow_unicode=True, width=4096
     )
-    args.dst.write_text(HEADER + body, encoding="utf-8")
+    dst.write_text(HEADER + body, encoding="utf-8")
     nodes = len(manifest["plugins"]["cuvis_ai_builtin"]["provides"])
-    print(f"Wrote {args.dst} ({nodes} nodes, tag {args.tag})")
+    click.echo(f"Wrote {dst} ({nodes} nodes, tag {tag})")
 
 
 if __name__ == "__main__":

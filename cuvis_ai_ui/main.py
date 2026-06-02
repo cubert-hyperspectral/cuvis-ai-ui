@@ -8,6 +8,7 @@ import socket
 import sys
 from pathlib import Path
 
+import click
 from loguru import logger
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -35,15 +36,24 @@ def _server_is_listening(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
-def main() -> None:
-    """Main entry point for cuvis-visualizer.
+@click.command()
+@click.option(
+    "--test",
+    "run_test",
+    is_flag=True,
+    help="Run a gRPC connection test and exit instead of launching the GUI.",
+)
+def main(run_test: bool) -> None:
+    """Launch the Cuvis.AI UI.
 
-    Launches the Qt application with:
-    - Main window with NodeGraphQt canvas
-    - Node palette (left dock)
-    - Property editor (right dock)
-    - gRPC connection to cuvis-ai-core
+    Starts the Qt application (NodeGraphQt canvas, node palette, property
+    editor) connected to cuvis-ai-core. With ``--test`` it runs a connection
+    test and exits without opening the GUI.
     """
+    if run_test:
+        _run_connection_test()
+        return
+
     logger.info("Starting cuvis-visualizer...")
 
     # Create Qt application
@@ -292,11 +302,19 @@ def main() -> None:
     sys.exit(app.exec())
 
 
-def test_connection() -> None:
-    """Test gRPC connection without launching GUI.
+@click.command()
+@click.option("--host", default="localhost", show_default=True, help="gRPC server host.")
+@click.option("--port", default=50051, show_default=True, type=int, help="gRPC server port.")
+def test_connection(host: str, port: int) -> None:
+    """Test the gRPC connection without launching the GUI.
 
     Useful for debugging and CI/CD validation.
     """
+    _run_connection_test(host, port)
+
+
+def _run_connection_test(host: str = "localhost", port: int = 50051) -> None:
+    """Connect to the gRPC server, load plugins, and list available nodes."""
     print("=" * 60)
     print("cuvis-ai-ui - Connection Test")
     print("=" * 60)
@@ -305,8 +323,8 @@ def test_connection() -> None:
     try:
         from .grpc.client import CuvisAIClient
 
-        with CuvisAIClient() as client:
-            print("[OK] Connected to gRPC server at localhost:50051")
+        with CuvisAIClient(host=host, port=port) as client:
+            print(f"[OK] Connected to gRPC server at {host}:{port}")
             print(f"[OK] Session ID: {client.session_id}")
 
             # Load persisted / default plugins
@@ -358,8 +376,4 @@ def test_connection() -> None:
 
 
 if __name__ == "__main__":
-    # Allow running test_connection with --test flag
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        test_connection()
-    else:
-        main()
+    main()

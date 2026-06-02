@@ -8,6 +8,7 @@
 - Added `_coerce_provides` in `cuvis_ai_ui/settings/plugins.py` (applied in `build_manifest` and the Plugin Manager git/local loaders) to wrap bare class-name `provides:` entries into `{class_name: ...}` so manifests validate against the new schema. Updated the "Provided Nodes" help text: the palette is built from this list — the server no longer auto-discovers plugin nodes.
 - Changed `pipeline_serializer.to_config` to emit a bare-name `plugins:` block derived from each node's owning plugin, as required by the loader's pipeline plugin resolver; classes with no known plugin are surfaced as a load warning.
 - Changed `cuvis_ai_ui/adapters/port_helpers.py` and `widgets/node_palette.py` to use the renamed `PortSpec.variadic` field (was `multi_input`) for fan-in input ports; the palette tooltip now flags variadic ports.
+- Changed the CLI surface to `click`: the `cuvis-ui` / `cuvis-ui-test` entry points and `scripts/regenerate_catalog.py` are now click commands with `--help` and options (`--test`, `--host`/`--port`, `--src`/`--dst`/`--repo`/`--tag`). Added `click` as a dependency.
 
 ## 0.2.0 - 2026-05-18
 
