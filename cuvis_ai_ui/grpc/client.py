@@ -41,35 +41,36 @@ def _dtype_to_string(dtype_enum: int) -> str:
 
 
 def _convert_port_specs(port_specs_map: dict) -> list[dict[str, Any]]:
-    """Convert proto port specs map to list of port spec dicts.
+    """Convert a proto port-specs map to a list of port spec dicts.
 
     Parameters
     ----------
     port_specs_map : dict
-        Map from port name to PortSpecList proto message
+        Map from port name to a single PortSpec proto message.
 
     Returns
     -------
     list[dict[str, Any]]
-        List of port spec dicts with keys: name, dtype, shape, optional, description
+        List of port spec dicts with keys: name, dtype, shape, optional,
+        description, variadic
     """
     result = []
-    for port_name, port_spec_list in port_specs_map.items():
-        for spec in port_spec_list.specs:
-            # Convert shape from list to string format
-            # E.g., [-1, -1, -1, -1] -> "[-1, -1, -1, -1]"
-            shape_list = list(spec.shape) if spec.shape else []
-            shape_str = str(shape_list) if shape_list else "any"
+    for port_name, spec in port_specs_map.items():
+        # Convert shape from list to string format
+        # E.g., [-1, -1, -1, -1] -> "[-1, -1, -1, -1]"
+        shape_list = list(spec.shape) if spec.shape else []
+        shape_str = str(shape_list) if shape_list else "any"
 
-            result.append(
-                {
-                    "name": spec.name if spec.name else port_name,
-                    "dtype": _dtype_to_string(spec.dtype),
-                    "shape": shape_str,
-                    "optional": spec.optional,
-                    "description": spec.description if spec.description else "",
-                }
-            )
+        result.append(
+            {
+                "name": spec.name if spec.name else port_name,
+                "dtype": _dtype_to_string(spec.dtype),
+                "shape": shape_str,
+                "optional": spec.optional,
+                "description": spec.description if spec.description else "",
+                "variadic": spec.variadic,
+            }
+        )
     return result
 
 
@@ -287,8 +288,10 @@ class CuvisAIClient:
         dict[str, Any]
             Response with:
             - success (bool): Overall success status
-            - loaded_plugins (list[str]): Successfully loaded plugin names
-            - failed_plugins (list[str]): Failed plugin names
+            - loaded_plugins (list[str]): Plugin names registered into the session
+              catalog. The server registers manifest entries as catalog metadata;
+              it does not install or import them (that happens lazily on LoadPipeline).
+            - failed_plugins (list[str]): Plugin names that failed manifest validation
 
         Raises
         ------
@@ -326,17 +329,20 @@ class CuvisAIClient:
             )
 
             logger.info(
-                f"Loaded {len(response.loaded_plugins)} plugins: "
-                f"{', '.join(response.loaded_plugins)}"
+                f"Registered {len(response.registered_plugins)} plugins: "
+                f"{', '.join(response.registered_plugins)}"
             )
 
             if response.failed_plugins:
                 logger.warning(
-                    f"Failed to load {len(response.failed_plugins)} plugins: "
+                    f"Failed to register {len(response.failed_plugins)} plugins: "
                     f"{', '.join(response.failed_plugins)}"
                 )
 
-            loaded = list(response.loaded_plugins)
+            # The server renamed this field to registered_plugins (LoadPlugins now
+            # registers catalog metadata rather than installing). Keep the returned
+            # dict key as loaded_plugins so UI call sites stay unchanged.
+            loaded = list(response.registered_plugins)
             failed = list(response.failed_plugins.keys())
             return {
                 "success": len(loaded) > 0 and len(failed) == 0,

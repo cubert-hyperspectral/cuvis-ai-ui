@@ -183,12 +183,16 @@ class PluginManagerDialog(QDialog):
         layout.addWidget(form_group)
 
         # Provided nodes (optional)
-        provides_group = QGroupBox("Provided Nodes (optional)")
+        provides_group = QGroupBox("Provided Nodes (required)")
         provides_layout = QVBoxLayout(provides_group)
 
-        provides_layout.addWidget(
-            QLabel("List node class paths, one per line. Leave empty to auto-discover.")
+        provides_label = QLabel(
+            "Fully-qualified node class paths, one per line. Required: the palette "
+            "is populated from this list — the server no longer auto-discovers "
+            "plugin nodes."
         )
+        provides_label.setWordWrap(True)
+        provides_layout.addWidget(provides_label)
 
         self._git_provides = QTextEdit()
         self._git_provides.setPlaceholderText(
@@ -233,12 +237,16 @@ class PluginManagerDialog(QDialog):
         layout.addWidget(form_group)
 
         # Provided nodes (optional)
-        provides_group = QGroupBox("Provided Nodes (optional)")
+        provides_group = QGroupBox("Provided Nodes (required)")
         provides_layout = QVBoxLayout(provides_group)
 
-        provides_layout.addWidget(
-            QLabel("List node class paths, one per line. Leave empty to auto-discover.")
+        provides_label = QLabel(
+            "Fully-qualified node class paths, one per line. Required: the palette "
+            "is populated from this list — the server no longer auto-discovers "
+            "plugin nodes."
         )
+        provides_label.setWordWrap(True)
+        provides_layout.addWidget(provides_label)
 
         self._local_provides = QTextEdit()
         self._local_provides.setPlaceholderText(
@@ -668,9 +676,12 @@ class PluginManagerDialog(QDialog):
             }
         }
 
-        # Add provides if specified
+        # Add provides if specified. Wrap each FQCN line as a CatalogNodeEntry
+        # ({class_name: ...}); the manifest schema no longer accepts bare strings.
         if provides_text:
-            provides = [line.strip() for line in provides_text.split("\n") if line.strip()]
+            provides = [
+                {"class_name": line.strip()} for line in provides_text.split("\n") if line.strip()
+            ]
             manifest["plugins"][name]["provides"] = provides
 
         self._load_plugins(manifest, source="git")
@@ -707,9 +718,12 @@ class PluginManagerDialog(QDialog):
             }
         }
 
-        # Add provides if specified
+        # Add provides if specified. Wrap each FQCN line as a CatalogNodeEntry
+        # ({class_name: ...}); the manifest schema no longer accepts bare strings.
         if provides_text:
-            provides = [line.strip() for line in provides_text.split("\n") if line.strip()]
+            provides = [
+                {"class_name": line.strip()} for line in provides_text.split("\n") if line.strip()
+            ]
             manifest["plugins"][name]["provides"] = provides
 
         self._load_plugins(manifest, source="local")

@@ -48,6 +48,33 @@ def _resolve_local_path(config: dict[str, Any], manifest_dir: Path) -> dict[str,
     return resolved
 
 
+def _coerce_provides(config: dict[str, Any]) -> dict[str, Any]:
+    """Wrap bare-string ``provides`` entries as ``{"class_name": ...}`` dicts.
+
+    The plugin manifest schema requires each ``provides`` entry to be a
+    CatalogNodeEntry object (an FQCN ``class_name`` plus optional palette
+    metadata). Legacy manifests and the Plugin Manager's free-text input use a
+    plain list of class-name strings; wrap those so they validate server-side.
+    Entries that are already dicts are left untouched, so this is idempotent.
+
+    Args:
+        config: Plugin config dict (may contain a ``provides`` list).
+
+    Returns:
+        The original dict if nothing needed wrapping, otherwise a shallow copy
+        with each string ``provides`` entry replaced by ``{"class_name": ...}``.
+    """
+    provides = config.get("provides")
+    if not isinstance(provides, list):
+        return config
+    coerced = [{"class_name": entry} if isinstance(entry, str) else entry for entry in provides]
+    if coerced == provides:
+        return config
+    result = dict(config)
+    result["provides"] = coerced
+    return result
+
+
 def _load_manifest_entries(manifest_path: Path) -> list[dict[str, Any]]:
     """Load plugin entries from a single manifest YAML file.
 
@@ -249,6 +276,7 @@ def build_manifest(
         origin = normalized.get("origin")
         if origin:
             config = _resolve_local_path(config, Path(origin).parent)
+        config = _coerce_provides(config)
         provides = config.get("provides")
         if isinstance(provides, list) and not provides:
             config.pop("provides", None)

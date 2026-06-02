@@ -90,10 +90,12 @@ class NodePaletteItem(QTreeWidgetItem):
                     dtype = spec.get("dtype", "any")
                     optional = spec.get("optional", False)
                     opt_str = " (opt)" if optional else ""
-                    lines.append(f"  - {name}: {dtype}{opt_str}")
+                    var_str = " (variadic)" if spec.get("variadic", False) else ""
+                    lines.append(f"  - {name}: {dtype}{opt_str}{var_str}")
                 elif isinstance(spec, PortSpec):
                     opt_str = " (opt)" if spec.optional else ""
-                    lines.append(f"  - {spec.dtype}{opt_str}")
+                    var_str = " (variadic)" if getattr(spec, "variadic", False) else ""
+                    lines.append(f"  - {spec.dtype}{opt_str}{var_str}")
 
         # Output specs
         output_specs = info.get("output_specs", [])

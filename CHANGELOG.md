@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Changed `cuvis_ai_ui/grpc/client.py` `load_plugins` to read the server's renamed `registered_plugins` field — `LoadPlugins` now registers inline-catalog metadata rather than installing. The returned dict keeps its `loaded_plugins` key so call sites are unaffected.
+- Changed `cuvis_ai_catalog.yaml` `provides:` from bare class-name strings to inline `CatalogNodeEntry` objects (FQCN plus port specs, category, tags, icon SVG), so the node palette is populated from the manifest without the server importing plugin code; bumped the cuvis-ai source tag to `v0.7.3`.
+- Added `tools/regenerate_catalog.py` to regenerate the bundled catalog from cuvis-ai's `configs/plugins/cuvis_ai_builtin.yaml`, normalising port specs to the single-`CatalogPortSpec`-per-port (`variadic` flag) shape. Idempotent; re-run with `--tag` for a new cuvis-ai release.
+- Added `_coerce_provides` in `cuvis_ai_ui/settings/plugins.py` (applied in `build_manifest` and the Plugin Manager git/local loaders) to wrap bare class-name `provides:` entries into `{class_name: ...}` so manifests validate against the new schema. Updated the "Provided Nodes" help text: the palette is built from this list — the server no longer auto-discovers plugin nodes.
+- Changed `pipeline_serializer.to_config` to emit a bare-name `plugins:` block derived from each node's owning plugin, as required by the loader's pipeline plugin resolver; classes with no known plugin are surfaced as a load warning.
+- Changed `cuvis_ai_ui/adapters/port_helpers.py` and `widgets/node_palette.py` to use the renamed `PortSpec.variadic` field (was `multi_input`) for fan-in input ports; the palette tooltip now flags variadic ports.
+
 ## 0.2.0 - 2026-05-18
 
 - Added a `windows-installer` job to `.github/workflows/pypi-release.yml` that builds `cuvis-ai-ui-setup-<version>.exe` on `windows-latest` and attaches it to the GitHub Release alongside the wheel and tarball. The job invokes `installer\build.bat` unchanged; the `cuvis-ai-core` revision used for the build is pinned in a new `.cuvis-ai-core-version` file at the repo root (initial pin: `v0.6.0`).

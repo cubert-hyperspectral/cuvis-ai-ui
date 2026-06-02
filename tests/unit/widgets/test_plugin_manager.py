@@ -596,11 +596,13 @@ def test_load_git_plugin_with_provides(mock_info, mock_temp, qapp, mock_grpc_cli
 
     dialog._load_git_plugin()
 
-    # Verify the manifest passed to write_manifest_temp includes provides
+    # Verify the manifest includes provides as CatalogNodeEntry dicts. The
+    # manifest schema no longer accepts bare class-name strings, so each FQCN
+    # line is wrapped into a {class_name: ...} entry.
     manifest_arg = mock_temp.call_args[0][0]
     provides = manifest_arg["plugins"]["my_plugin"].get("provides", [])
-    assert "my_plugin.NodeA" in provides
-    assert "my_plugin.NodeB" in provides
+    assert {"class_name": "my_plugin.NodeA"} in provides
+    assert {"class_name": "my_plugin.NodeB"} in provides
 
 
 # ---------------------------------------------------------------------------

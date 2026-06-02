@@ -185,6 +185,53 @@ def test_load_plugins_not_connected_raises_error():
         client.load_plugins(Path("test.yaml"))
 
 
+def test_load_plugins_reads_registered_plugins(tmp_path):
+    """load_plugins maps the server's registered_plugins field into loaded_plugins.
+
+    The refactored server renamed LoadPluginsResponse.loaded_plugins to
+    registered_plugins (it registers catalog metadata rather than installing).
+    The client keeps its returned dict key stable for UI call sites.
+    """
+    manifest = tmp_path / "plugins.yaml"
+    manifest.write_text("plugins: {}\n", encoding="utf-8")
+
+    client = CuvisAIClient()
+    client._connected = True
+    client.session_id = "s-1"
+    client.stub = Mock()
+    client.stub.LoadPlugins.return_value = Mock(
+        registered_plugins=["adaclip", "cuvis_ai_builtin"],
+        failed_plugins={},
+    )
+
+    result = client.load_plugins(manifest)
+
+    assert result["loaded_plugins"] == ["adaclip", "cuvis_ai_builtin"]
+    assert result["failed_plugins"] == []
+    assert result["success"] is True
+
+
+def test_load_plugins_reports_failed_plugins(tmp_path):
+    """Failed manifest entries surface via failed_plugins; success is False."""
+    manifest = tmp_path / "plugins.yaml"
+    manifest.write_text("plugins: {}\n", encoding="utf-8")
+
+    client = CuvisAIClient()
+    client._connected = True
+    client.session_id = "s-1"
+    client.stub = Mock()
+    client.stub.LoadPlugins.return_value = Mock(
+        registered_plugins=["ok"],
+        failed_plugins={"bad": "validation error"},
+    )
+
+    result = client.load_plugins(manifest)
+
+    assert result["loaded_plugins"] == ["ok"]
+    assert result["failed_plugins"] == ["bad"]
+    assert result["success"] is False
+
+
 def test_dtype_to_string():
     """Test converting proto DType enum to string."""
     from cuvis_ai_schemas.grpc.v1 import cuvis_ai_pb2
@@ -212,11 +259,9 @@ def test_convert_port_specs():
     mock_spec.shape = [-1, -1, -1]
     mock_spec.optional = False
     mock_spec.description = "Test port"
+    mock_spec.variadic = True
 
-    mock_port_spec_list = Mock()
-    mock_port_spec_list.specs = [mock_spec]
-
-    port_specs_map = {"port1": mock_port_spec_list}
+    port_specs_map = {"port1": mock_spec}
 
     result = _convert_port_specs(port_specs_map)
 
@@ -225,6 +270,7 @@ def test_convert_port_specs():
     assert result[0]["dtype"] == "float32"
     assert result[0]["optional"] is False
     assert result[0]["description"] == "Test port"
+    assert result[0]["variadic"] is True
 
 
 def test_convert_port_specs_with_empty_name():
@@ -237,11 +283,9 @@ def test_convert_port_specs_with_empty_name():
     mock_spec.shape = []
     mock_spec.optional = False
     mock_spec.description = ""
+    mock_spec.variadic = False
 
-    mock_port_spec_list = Mock()
-    mock_port_spec_list.specs = [mock_spec]
-
-    port_specs_map = {"fallback_name": mock_port_spec_list}
+    port_specs_map = {"fallback_name": mock_spec}
 
     result = _convert_port_specs(port_specs_map)
 
@@ -258,11 +302,9 @@ def test_convert_port_specs_empty_shape():
     mock_spec.shape = []
     mock_spec.optional = False
     mock_spec.description = ""
+    mock_spec.variadic = False
 
-    mock_port_spec_list = Mock()
-    mock_port_spec_list.specs = [mock_spec]
-
-    result = _convert_port_specs({"test": mock_port_spec_list})
+    result = _convert_port_specs({"test": mock_spec})
 
     assert result[0]["shape"] == "any"
 

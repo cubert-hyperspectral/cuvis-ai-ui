@@ -7,6 +7,7 @@ import pytest
 
 from cuvis_ai_ui.settings.plugins import (
     PLUGIN_STORE_VERSION,
+    _coerce_provides,
     _dedupe_entries,
     _load_manifest_entries,
     _normalize_entry,
@@ -475,10 +476,26 @@ class TestBuildManifest:
         manifest = build_manifest(entries)
         assert "provides" not in manifest["plugins"]["prov"]
 
-    def test_keeps_non_empty_provides_list(self):
+    def test_coerces_bare_string_provides_to_catalog_entries(self):
+        # The manifest schema now requires CatalogNodeEntry objects; bare class
+        # strings must be wrapped into {class_name: ...} dicts.
         entries = [_make_entry(name="prov", config={"provides": ["node.Foo"]})]
         manifest = build_manifest(entries)
-        assert manifest["plugins"]["prov"]["provides"] == ["node.Foo"]
+        assert manifest["plugins"]["prov"]["provides"] == [{"class_name": "node.Foo"}]
+
+    def test_leaves_dict_provides_untouched(self):
+        entry_dict = {"class_name": "node.Foo", "category": "transform"}
+        entries = [_make_entry(name="prov", config={"provides": [entry_dict]})]
+        manifest = build_manifest(entries)
+        assert manifest["plugins"]["prov"]["provides"] == [entry_dict]
+
+    def test_provides_entries_validate_as_catalog_node_entry(self):
+        from cuvis_ai_schemas.catalog import CatalogNodeEntry
+
+        entries = [_make_entry(name="prov", config={"provides": ["pkg.mod.Node"]})]
+        manifest = build_manifest(entries)
+        for raw in manifest["plugins"]["prov"]["provides"]:
+            CatalogNodeEntry(**raw)  # raises if the wrapped shape is invalid
 
     def test_empty_entries_produces_empty_manifest(self):
         manifest = build_manifest([])
@@ -497,6 +514,49 @@ class TestBuildManifest:
         # Original config should not be mutated
         assert config["path"] == "rel/path"
         assert config["provides"] == []
+
+
+# ── _coerce_provides ─────────────────────────────────────────────────
+
+
+class TestCoerceProvides:
+    def test_wraps_string_entries(self):
+        config = {"provides": ["a.b.C", "a.b.D"]}
+        result = _coerce_provides(config)
+        assert result["provides"] == [{"class_name": "a.b.C"}, {"class_name": "a.b.D"}]
+
+    def test_leaves_dict_entries(self):
+        config = {"provides": [{"class_name": "a.b.C", "category": "sink"}]}
+        result = _coerce_provides(config)
+        assert result["provides"] == [{"class_name": "a.b.C", "category": "sink"}]
+
+    def test_mixed_entries(self):
+        config = {"provides": ["a.b.C", {"class_name": "a.b.D"}]}
+        result = _coerce_provides(config)
+        assert result["provides"] == [{"class_name": "a.b.C"}, {"class_name": "a.b.D"}]
+
+    def test_idempotent(self):
+        once = _coerce_provides({"provides": ["a.b.C"]})
+        twice = _coerce_provides(once)
+        assert once["provides"] == twice["provides"] == [{"class_name": "a.b.C"}]
+
+    def test_no_provides_returns_same_object(self):
+        config = {"repo": "x", "tag": "v1"}
+        assert _coerce_provides(config) is config
+
+    def test_non_list_provides_returns_same_object(self):
+        config = {"provides": "not-a-list"}
+        assert _coerce_provides(config) is config
+
+    def test_all_dict_entries_returns_same_object(self):
+        # Nothing to wrap → original object returned unchanged (idempotent fast path).
+        config = {"provides": [{"class_name": "a.b.C"}]}
+        assert _coerce_provides(config) is config
+
+    def test_does_not_mutate_input(self):
+        config = {"provides": ["a.b.C"]}
+        _coerce_provides(config)
+        assert config["provides"] == ["a.b.C"]
 
 
 # ── _resolve_local_path ──────────────────────────────────────────────
