@@ -11,6 +11,7 @@
 - Changed the CLI surface to `click`: the `cuvis-ui` / `cuvis-ui-test` entry points and `scripts/regenerate_catalog.py` are now click commands with `--help` and options (`--test`, `--host`/`--port`, `--src`/`--dst`/`--repo`/`--tag`). Added `click` as a dependency.
 - Changed the `cuvis-ai-schemas[proto]` floor from `>=0.4.0` to `>=0.5.1` to align with the ecosystem release. No code change: the UI consumes only the static `CATEGORY_STYLES` / `TAG_STYLES` tables from `node_display` (unchanged), and detects plugins from the gRPC `NodeInfo.source` / `plugin_name` fields rather than the registry's renamed `loaded_plugin_nodes` attribute.
 - Removed the local `cuvis-ai-schemas` editable path source from `[tool.uv.sources]` (commented out): schemas `0.5.1` is published on PyPI, so clean checkouts resolve it from the index. Uncomment for local lockstep development against an on-disk checkout.
+- Started tracking `uv.lock` (removed it from `.gitignore`) so dependency resolution is reproducible across checkouts and CI, matching `cuvis-ai` and `cuvis-ai-core`.
 
 ## 0.2.0 - 2026-05-18
 
