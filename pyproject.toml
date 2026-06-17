@@ -157,7 +157,7 @@ torch = { index = "pytorch-cpu" }
 # Local editable override for developing against an on-disk schemas checkout.
 # Schemas is published on PyPI, so the default resolution is from the index;
 # uncomment to use the sibling checkout for lockstep development.
-# cuvis-ai-schemas = { path = "../../cuvis-ai-schemas/cuvis-ai-schemas", editable = true }
+cuvis-ai-schemas = { path = "../../cuvis-ai-schemas/cuvis-ai-schemas", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

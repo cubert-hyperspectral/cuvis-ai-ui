@@ -313,11 +313,12 @@ class CuvisAIClient:
                 raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 
             with open(manifest_path, "r") as f:
-                # Parse YAML (also handles JSON)
-                manifest_dict = yaml.safe_load(f)
+                # Parse YAML (also handles JSON). The LoadPlugins payload is a
+                # LIST of bare single-plugin manifests; it is sent verbatim.
+                manifest_payload = yaml.safe_load(f)
 
             # Convert to JSON for gRPC transport
-            manifest_json = json.dumps(manifest_dict)
+            manifest_json = json.dumps(manifest_payload)
 
             # Send to server
             response = self.stub.LoadPlugins(

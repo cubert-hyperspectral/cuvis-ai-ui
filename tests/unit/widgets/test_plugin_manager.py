@@ -392,13 +392,13 @@ def test_refresh_status_shows_origin_when_set(mock_load, qapp, mock_grpc_client)
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
 def test_refresh_status_provides_column_shows_count(mock_load, qapp, mock_grpc_client):
-    """Test that provided nodes column shows count when provides list is present."""
+    """Test that provided nodes column shows count when capabilities list is present."""
     entries = [
         {
             "name": "my_plugin",
             "enabled": True,
             "source": "git",
-            "config": {"provides": ["node.A", "node.B", "node.C"]},
+            "config": {"capabilities": ["node.A", "node.B", "node.C"]},
         },
     ]
     mock_load.return_value = entries
@@ -596,13 +596,15 @@ def test_load_git_plugin_with_provides(mock_info, mock_temp, qapp, mock_grpc_cli
 
     dialog._load_git_plugin()
 
-    # Verify the manifest includes provides as CatalogNodeEntry dicts. The
-    # manifest schema no longer accepts bare class-name strings, so each FQCN
-    # line is wrapped into a {class_name: ...} entry.
+    # The LoadPlugins payload is a LIST of bare manifests. Capabilities are
+    # PluginCapabilityEntry dicts: the schema no longer accepts bare class-name
+    # strings, so each FQCN line is wrapped into a {class_name: ...} entry.
     manifest_arg = mock_temp.call_args[0][0]
-    provides = manifest_arg["plugins"]["my_plugin"].get("provides", [])
-    assert {"class_name": "my_plugin.NodeA"} in provides
-    assert {"class_name": "my_plugin.NodeB"} in provides
+    assert isinstance(manifest_arg, list)
+    bare = next(m for m in manifest_arg if m["name"] == "my_plugin")
+    capabilities = bare.get("capabilities", [])
+    assert {"class_name": "my_plugin.NodeA"} in capabilities
+    assert {"class_name": "my_plugin.NodeB"} in capabilities
 
 
 # ---------------------------------------------------------------------------
@@ -719,22 +721,25 @@ def test_load_manifest_nonexistent_file_shows_warning(mock_warn, qapp, mock_grpc
 @patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.merge_plugin_entries")
 def test_persist_plugins_from_manifest(mock_merge, mock_save, qapp, mock_grpc_client):
-    """Test persisting loaded plugins from a manifest dict."""
+    """Test persisting loaded plugins from a list of bare manifests."""
     mock_merge.return_value = [{"name": "foo", "enabled": True, "source": "git", "config": {}}]
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
-    manifest = {
-        "plugins": {
-            "foo": {"repo": "git@host:org/foo.git"},
-            "bar": {"repo": "git@host:org/bar.git"},
-        }
-    }
+    manifest = [
+        {"name": "foo", "repo": "git@host:org/foo.git", "capabilities": [{"class_name": "f.F"}]},
+        {"name": "bar", "repo": "git@host:org/bar.git", "capabilities": [{"class_name": "b.B"}]},
+    ]
 
     dialog._persist_plugins_from_manifest(manifest, loaded=["foo"], source="git")
 
     mock_merge.assert_called_once()
     mock_save.assert_called_once()
+    # Only the loaded plugin is persisted, and name is split out of config.
+    new_entries = mock_merge.call_args[0][1]
+    assert [e["name"] for e in new_entries] == ["foo"]
+    assert "name" not in new_entries[0]["config"]
+    assert new_entries[0]["config"]["repo"] == "git@host:org/foo.git"
 
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
@@ -745,7 +750,7 @@ def test_persist_plugins_with_origin(mock_merge, mock_save, qapp, mock_grpc_clie
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
-    manifest = {"plugins": {"foo": {"repo": "x"}}}
+    manifest = [{"name": "foo", "repo": "x"}]
     dialog._persist_plugins_from_manifest(
         manifest, loaded=["foo"], source="manifest", origin="/path/to/manifest.yaml"
     )
@@ -760,7 +765,7 @@ def test_persist_plugins_empty_loaded_list(mock_save, qapp, mock_grpc_client):
     dialog = PluginManagerDialog(client=mock_grpc_client)
     mock_save.reset_mock()
 
-    manifest = {"plugins": {"foo": {"repo": "x"}}}
+    manifest = [{"name": "foo", "repo": "x"}]
     dialog._persist_plugins_from_manifest(manifest, loaded=[], source="git")
 
     mock_save.assert_not_called()
@@ -768,11 +773,11 @@ def test_persist_plugins_empty_loaded_list(mock_save, qapp, mock_grpc_client):
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
 def test_persist_plugins_invalid_manifest(mock_save, qapp, mock_grpc_client):
-    """Test that persist does nothing with invalid manifest structure."""
+    """Test that persist does nothing with an invalid (non-list) manifest payload."""
     dialog = PluginManagerDialog(client=mock_grpc_client)
     mock_save.reset_mock()
 
-    manifest = {"plugins": "not_a_dict"}
+    manifest = {"plugins": "not_a_list"}
     dialog._persist_plugins_from_manifest(manifest, loaded=["foo"], source="git")
 
     mock_save.assert_not_called()
@@ -865,8 +870,8 @@ def test_browse_local_path_does_not_overwrite_name(mock_dir, qapp, mock_grpc_cli
 
 def test_preview_manifest(qapp, mock_grpc_client, tmp_path):
     """Test preview manifest reads file content."""
-    manifest_file = tmp_path / "plugins.yaml"
-    manifest_file.write_text("plugins:\n  test_plugin:\n    repo: x\n")
+    manifest_file = tmp_path / "test_plugin.yaml"
+    manifest_file.write_text("name: test_plugin\nrepo: x\ntag: v1\ncapabilities:\n  - t.p.R\n")
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
     dialog._preview_manifest(str(manifest_file))
@@ -1008,7 +1013,7 @@ def test_load_plugins_with_failures(mock_warn, mock_temp, qapp, mock_grpc_client
     }
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
-    dialog._load_plugins({"plugins": {"bad_plugin": {}}}, source="git")
+    dialog._load_plugins([{"name": "bad_plugin", "repo": "x", "tag": "v1"}], source="git")
 
     mock_warn.assert_called_once()
 
@@ -1024,7 +1029,7 @@ def test_load_plugins_grpc_error(mock_crit, mock_temp, qapp, mock_grpc_client, t
     mock_grpc_client.load_plugins.side_effect = RuntimeError("gRPC down")
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
-    dialog._load_plugins({"plugins": {"p": {}}}, source="git")
+    dialog._load_plugins([{"name": "p", "repo": "x", "tag": "v1"}], source="git")
 
     mock_crit.assert_called_once()
 
@@ -1180,9 +1185,9 @@ def test_session_dialog_close_session_does_nothing_when_no_client(qapp):
 
 
 def test_scan_directory_lists_yaml_manifests(qapp, mock_grpc_client, tmp_path):
-    """Scan should list both .yaml and .yml files plus their plugin keys."""
-    (tmp_path / "a.yaml").write_text("plugins:\n  alpha:\n    repo: x\n")
-    (tmp_path / "b.yml").write_text("plugins:\n  beta:\n    repo: y\n")
+    """Scan should list both .yaml and .yml files plus their plugin name."""
+    (tmp_path / "a.yaml").write_text("name: alpha\nrepo: x\ntag: v1\n")
+    (tmp_path / "b.yml").write_text("name: beta\nrepo: y\ntag: v1\n")
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
     dialog._directory_path.setText(str(tmp_path))
@@ -1251,7 +1256,7 @@ def test_load_directory_plugins_success_emits_signal(
     """Happy path: directory plugins load → signal fires + persist runs."""
     entries = [{"name": "alpha", "enabled": True, "source": "manifest", "config": {}}]
     mock_load_dir.return_value = entries
-    mock_build.return_value = {"plugins": {"alpha": {"repo": "x"}}}
+    mock_build.return_value = [{"name": "alpha", "repo": "x", "tag": "v1"}]
 
     temp_file = tmp_path / "merged.yaml"
     temp_file.touch()
@@ -1311,8 +1316,10 @@ def test_load_directory_plugins_no_entries(
 
 
 def _write_simple_manifest(tmp_path):
-    manifest_file = tmp_path / "plugins.yaml"
-    manifest_file.write_text("plugins:\n  foo:\n    repo: git@host:org/foo.git\n")
+    manifest_file = tmp_path / "foo.yaml"
+    manifest_file.write_text(
+        "name: foo\nrepo: git@host:org/foo.git\ntag: v1\ncapabilities:\n  - foo.node.Foo\n"
+    )
     return manifest_file
 
 
@@ -1382,10 +1389,40 @@ def test_load_manifest_plugins_partial_failure(
 
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.critical")
-def test_load_manifest_plugins_missing_plugins_key(mock_crit, qapp, mock_grpc_client, tmp_path):
-    """Manifest without a top-level 'plugins:' key is rejected."""
-    manifest_file = tmp_path / "empty.yaml"
+def test_load_manifest_plugins_missing_name(mock_crit, qapp, mock_grpc_client, tmp_path):
+    """A bare manifest without a 'name' is rejected."""
+    manifest_file = tmp_path / "noname.yaml"
     manifest_file.write_text("other_section: 1\n")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._manifest_path.setText(str(manifest_file))
+
+    dialog._load_manifest_plugins()
+
+    mock_crit.assert_called_once()
+    mock_grpc_client.load_plugins.assert_not_called()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.critical")
+def test_load_manifest_plugins_missing_source(mock_crit, qapp, mock_grpc_client, tmp_path):
+    """A bare manifest without a source ('path' or 'repo'+'tag') is rejected."""
+    manifest_file = tmp_path / "nosrc.yaml"
+    manifest_file.write_text("name: foo\ncapabilities:\n  - foo.node.Foo\n")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._manifest_path.setText(str(manifest_file))
+
+    dialog._load_manifest_plugins()
+
+    mock_crit.assert_called_once()
+    mock_grpc_client.load_plugins.assert_not_called()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.critical")
+def test_load_manifest_plugins_missing_capabilities(mock_crit, qapp, mock_grpc_client, tmp_path):
+    """A bare manifest without a 'capabilities' section is rejected."""
+    manifest_file = tmp_path / "nocaps.yaml"
+    manifest_file.write_text("name: foo\nrepo: git@host:org/foo.git\ntag: v1\n")
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
     dialog._manifest_path.setText(str(manifest_file))
@@ -1405,7 +1442,7 @@ def test_load_manifest_plugins_missing_plugins_key(mock_crit, qapp, mock_grpc_cl
 def test_browse_manifest_sets_path_and_previews(mock_dlg, qapp, mock_grpc_client, tmp_path):
     """Browsing a manifest sets the path field and writes preview content."""
     manifest_file = tmp_path / "p.yaml"
-    manifest_file.write_text("plugins:\n  my_node:\n    repo: x\n")
+    manifest_file.write_text("name: my_node\nrepo: x\ntag: v1\ncapabilities:\n  - m.n.O\n")
     mock_dlg.return_value = (str(manifest_file), "YAML Files (*.yaml *.yml)")
 
     dialog = PluginManagerDialog(client=mock_grpc_client)

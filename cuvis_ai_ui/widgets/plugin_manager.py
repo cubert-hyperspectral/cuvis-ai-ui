@@ -272,8 +272,8 @@ class PluginManagerDialog(QDialog):
         # Instructions
         layout.addWidget(
             QLabel(
-                "Load plugins from a YAML manifest file.\n"
-                "The manifest defines multiple plugins with their sources and nodes."
+                "Load a plugin from a YAML manifest file.\n"
+                "Each file is one bare manifest: a name, a source, and its capabilities."
             )
         )
 
@@ -386,10 +386,8 @@ class PluginManagerDialog(QDialog):
             try:
                 with open(m, "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f) or {}
-                plugins = data.get("plugins", {})
-                if isinstance(plugins, dict):
-                    for name in plugins:
-                        lines.append(f"    -> {name}")
+                if isinstance(data, dict) and isinstance(data.get("name"), str):
+                    lines.append(f"    -> {data['name']}")
             except Exception:
                 lines.append("    (parse error)")
 
@@ -408,7 +406,7 @@ class PluginManagerDialog(QDialog):
             return
 
         manifest = build_manifest(entries, enabled_only=True)
-        if not manifest.get("plugins"):
+        if not manifest:
             QMessageBox.information(self, "No Plugins", "No enabled plugins found.")
             return
 
@@ -499,9 +497,9 @@ class PluginManagerDialog(QDialog):
             source_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self._status_table.setItem(row, STATUS_COL_SOURCE, source_item)
 
-            provides = config.get("provides") if isinstance(config, dict) else None
-            if isinstance(provides, list) and provides:
-                provided_text = str(len(provides))
+            capabilities = config.get("capabilities") if isinstance(config, dict) else None
+            if isinstance(capabilities, list) and capabilities:
+                provided_text = str(len(capabilities))
             elif entry.get("name") in loaded_node_counts:
                 provided_text = str(loaded_node_counts.get(entry.get("name"), 0))
             else:
@@ -582,25 +580,32 @@ class PluginManagerDialog(QDialog):
 
     def _persist_plugins_from_manifest(
         self,
-        manifest: dict[str, Any],
+        manifest: list[dict[str, Any]],
         loaded: list[str],
         source: str,
         origin: str | None = None,
     ) -> None:
+        """Persist the loaded plugins from a list of bare plugin manifests.
+
+        Each manifest is ``{"name": ..., **config}``; the persisted entry stores
+        ``name`` separately and keeps the remaining keys (source + capabilities)
+        as its ``config``.
+        """
         if not loaded:
             return
 
-        plugins = manifest.get("plugins", {})
-        if not isinstance(plugins, dict):
+        if not isinstance(manifest, list):
             return
 
         loaded_set = set(loaded)
         new_entries: list[dict[str, Any]] = []
-        for name, config in plugins.items():
-            if not isinstance(name, str) or not isinstance(config, dict):
+        for bare in manifest:
+            if not isinstance(bare, dict):
                 continue
-            if name not in loaded_set:
+            name = bare.get("name")
+            if not isinstance(name, str) or name not in loaded_set:
                 continue
+            config = {k: v for k, v in bare.items() if k != "name"}
             entry = {
                 "name": name,
                 "enabled": True,
@@ -666,25 +671,24 @@ class PluginManagerDialog(QDialog):
             QMessageBox.warning(self, "Error", "Please enter a repository URL.")
             return
 
-        # Build manifest
-        manifest: dict[str, Any] = {
-            "plugins": {
-                name: {
-                    "repo": url,
-                    "tag": ref,
-                }
-            }
+        # Build one bare plugin manifest.
+        bare: dict[str, Any] = {
+            "name": name,
+            "repo": url,
+            "tag": ref,
         }
 
-        # Add provides if specified. Wrap each FQCN line as a CatalogNodeEntry
-        # ({class_name: ...}); the manifest schema no longer accepts bare strings.
+        # Add capabilities if specified. Wrap each FQCN line as a
+        # PluginCapabilityEntry ({class_name: ...}); the manifest schema no
+        # longer accepts bare strings.
         if provides_text:
-            provides = [
+            capabilities = [
                 {"class_name": line.strip()} for line in provides_text.split("\n") if line.strip()
             ]
-            manifest["plugins"][name]["provides"] = provides
+            bare["capabilities"] = capabilities
 
-        self._load_plugins(manifest, source="git")
+        # The LoadPlugins payload is a list of bare manifests.
+        self._load_plugins([bare], source="git")
 
     def _load_local_plugin(self) -> None:
         """Load a plugin from local path."""
@@ -709,24 +713,23 @@ class PluginManagerDialog(QDialog):
             QMessageBox.warning(self, "Error", f"Path does not exist: {path}")
             return
 
-        # Build manifest
-        manifest: dict[str, Any] = {
-            "plugins": {
-                name: {
-                    "path": path,
-                }
-            }
+        # Build one bare plugin manifest.
+        bare: dict[str, Any] = {
+            "name": name,
+            "path": path,
         }
 
-        # Add provides if specified. Wrap each FQCN line as a CatalogNodeEntry
-        # ({class_name: ...}); the manifest schema no longer accepts bare strings.
+        # Add capabilities if specified. Wrap each FQCN line as a
+        # PluginCapabilityEntry ({class_name: ...}); the manifest schema no
+        # longer accepts bare strings.
         if provides_text:
-            provides = [
+            capabilities = [
                 {"class_name": line.strip()} for line in provides_text.split("\n") if line.strip()
             ]
-            manifest["plugins"][name]["provides"] = provides
+            bare["capabilities"] = capabilities
 
-        self._load_plugins(manifest, source="local")
+        # The LoadPlugins payload is a list of bare manifests.
+        self._load_plugins([bare], source="local")
 
     def _load_manifest_plugins(self) -> None:
         """Load plugins from manifest file."""
@@ -749,25 +752,33 @@ class PluginManagerDialog(QDialog):
             QMessageBox.critical(self, "Error", f"Failed to read manifest:\n{e}")
             return
 
-        if not isinstance(manifest, dict) or "plugins" not in manifest:
-            QMessageBox.critical(self, "Error", "Manifest is missing a 'plugins' section.")
+        # A picked file is now ONE bare plugin manifest: a logical `name`, a
+        # source (`path` or `repo`+`tag`), and a `capabilities` list.
+        if (
+            not isinstance(manifest, dict)
+            or not isinstance(manifest.get("name"), str)
+            or not manifest.get("name")
+        ):
+            QMessageBox.critical(self, "Error", "Manifest is missing a 'name'.")
+            return
+        if "path" not in manifest and not ("repo" in manifest and "tag" in manifest):
+            QMessageBox.critical(
+                self, "Error", "Manifest is missing a source ('path' or 'repo'+'tag')."
+            )
+            return
+        if not manifest.get("capabilities"):
+            QMessageBox.critical(self, "Error", "Manifest is missing a 'capabilities' section.")
             return
 
-        # Resolve relative `path:` entries against the manifest file's dir,
-        # so the server (which has no knowledge of the YAML's location) sees
-        # absolute paths.
+        # Resolve a relative `path:` against the manifest file's dir, so the
+        # server (which has no knowledge of the YAML's location) sees an
+        # absolute path.
         manifest_dir = Path(path).resolve().parent
-        resolved_plugins: dict[str, Any] = {}
-        for plugin_name, plugin_config in manifest.get("plugins", {}).items():
-            if isinstance(plugin_config, dict):
-                resolved_plugins[plugin_name] = _resolve_local_path(plugin_config, manifest_dir)
-            else:
-                resolved_plugins[plugin_name] = plugin_config
-        resolved_manifest = dict(manifest)
-        resolved_manifest["plugins"] = resolved_plugins
+        bare = _resolve_local_path(manifest, manifest_dir)
+        payload = [bare]
 
         try:
-            temp_path = write_manifest_temp(resolved_manifest)
+            temp_path = write_manifest_temp(payload)
             try:
                 result = self._client.load_plugins(temp_path)
             finally:
@@ -783,7 +794,7 @@ class PluginManagerDialog(QDialog):
                 QMessageBox.information(self, "Success", f"Loaded plugins: {', '.join(loaded)}")
                 self.plugins_loaded.emit(loaded)
                 self._persist_plugins_from_manifest(
-                    manifest,
+                    payload,
                     loaded,
                     source="manifest",
                     origin=path,
@@ -802,14 +813,15 @@ class PluginManagerDialog(QDialog):
 
     def _load_plugins(
         self,
-        manifest: dict[str, Any],
+        manifest: list[dict[str, Any]],
         source: str | None = None,
         origin: str | None = None,
     ) -> None:
-        """Load plugins from a manifest dictionary.
+        """Load plugins from a list of bare plugin manifests.
 
         Args:
-            manifest: Plugin manifest dictionary
+            manifest: LoadPlugins payload: a list of bare plugin manifests
+                (each ``{"name": ..., **source, "capabilities": [...]}``).
             source: Plugin source label for persistence (git/local/manifest)
             origin: Optional source path for display
         """

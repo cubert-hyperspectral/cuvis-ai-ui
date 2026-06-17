@@ -402,15 +402,10 @@ wheels = [
 
 [[package]]
 name = "cuvis-ai-schemas"
-version = "0.5.1"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../../cuvis-ai-schemas/cuvis-ai-schemas" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/83/47/1ede9623c278c63901c0f50fae8d181163e19f02676d331792b3b8949c4a/cuvis_ai_schemas-0.5.1.tar.gz", hash = "sha256:a63aae2661126e36d4fee2e232f3e8cc1993c60aa58c91d405579a27821dd4ef", size = 225117, upload-time = "2026-06-09T11:28:57.94Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/96/04e574ee7b7eb62fcb58ca367ed45947f52b44d83c856d4964b013a9adf3/cuvis_ai_schemas-0.5.1-py3-none-any.whl", hash = "sha256:3df85fbff333a0d7f2f760df18f48b0958b344d40366b1d1250d3d802ff16171", size = 66089, upload-time = "2026-06-09T11:28:56.281Z" },
 ]
 
 [package.optional-dependencies]
@@ -419,6 +414,35 @@ proto = [
     { name = "grpcio-tools" },
     { name = "protobuf" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.7.0" },
+    { name = "cuvis-ai-schemas", extras = ["lightning", "numpy", "proto", "torch"], marker = "extra == 'full'" },
+    { name = "cyclonedx-bom", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.4.0" },
+    { name = "grpcio", marker = "extra == 'proto'", specifier = ">=1.56.0" },
+    { name = "grpcio-tools", marker = "extra == 'proto'", specifier = ">=1.56.0" },
+    { name = "interrogate", marker = "extra == 'dev'", specifier = ">=1.7.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
+    { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.21.0" },
+    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0" },
+    { name = "pip-licenses", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "protobuf", marker = "extra == 'proto'", specifier = ">=6.33.5,<8" },
+    { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "pytorch-lightning", marker = "extra == 'lightning'", specifier = ">=2.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.0.0" },
+    { name = "torchvision", marker = "extra == 'torch'" },
+    { name = "twine", marker = "extra == 'dev'", specifier = ">=6.2.0" },
+    { name = "types-grpcio", marker = "extra == 'dev'" },
+    { name = "types-protobuf", marker = "extra == 'dev'" },
+    { name = "types-pyyaml", marker = "extra == 'dev'" },
+]
+provides-extras = ["proto", "torch", "numpy", "lightning", "full", "dev"]
 
 [[package]]
 name = "cuvis-ai-ui"
@@ -466,7 +490,7 @@ viz = [
 requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.9.4" },
     { name = "click", specifier = ">=8.3.1" },
-    { name = "cuvis-ai-schemas", extras = ["proto"], specifier = ">=0.5.1" },
+    { name = "cuvis-ai-schemas", extras = ["proto"], editable = "../../cuvis-ai-schemas/cuvis-ai-schemas" },
     { name = "cyclonedx-bom", marker = "extra == 'dev'", specifier = ">=7.3.0" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.4.0" },
     { name = "grpcio", specifier = ">=1.80.0" },

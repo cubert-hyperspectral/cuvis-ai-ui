@@ -133,7 +133,7 @@ def main(run_test: bool) -> None:
         try:
             plugin_entries = load_plugin_entries()
             manifest = build_manifest(plugin_entries, enabled_only=True)
-            if manifest.get("plugins"):
+            if manifest:
                 temp_path = write_manifest_temp(manifest)
                 try:
                     result = client.load_plugins(temp_path)
@@ -238,7 +238,7 @@ def main(run_test: bool) -> None:
         try:
             plugin_entries = load_plugin_entries()
             manifest = build_manifest(plugin_entries, enabled_only=True)
-            if manifest.get("plugins"):
+            if manifest:
                 temp_path = write_manifest_temp(manifest)
                 try:
                     result = c.load_plugins(temp_path)
@@ -330,7 +330,7 @@ def _run_connection_test(host: str = "localhost", port: int = 50051) -> None:
             # Load persisted / default plugins
             plugin_entries = load_plugin_entries()
             manifest = build_manifest(plugin_entries, enabled_only=True)
-            if manifest.get("plugins"):
+            if manifest:
                 print()
                 print("Loading plugins...")
                 temp_path = write_manifest_temp(manifest)

@@ -7,9 +7,10 @@ import pytest
 
 from cuvis_ai_ui.settings.plugins import (
     PLUGIN_STORE_VERSION,
-    _coerce_provides,
+    _coerce_capabilities,
     _dedupe_entries,
     _load_manifest_entries,
+    _migrate_entry,
     _normalize_entry,
     _resolve_local_path,
     build_manifest,
@@ -314,6 +315,104 @@ class TestSaveLoadPluginEntries:
         assert loaded == []
 
 
+# ── store migration (v1 → v2) ────────────────────────────────────────
+
+
+class TestStoreMigration:
+    def test_store_version_is_2(self):
+        assert PLUGIN_STORE_VERSION == 2
+
+    def test_migrate_entry_renames_provides_to_capabilities(self):
+        entry = {
+            "name": "p",
+            "enabled": True,
+            "source": "git",
+            "config": {"repo": "x", "tag": "v1", "provides": [{"class_name": "a.b.C"}]},
+        }
+        migrated = _migrate_entry(entry)
+        assert "provides" not in migrated["config"]
+        assert migrated["config"]["capabilities"] == [{"class_name": "a.b.C"}]
+        # Other config keys are preserved.
+        assert migrated["config"]["repo"] == "x"
+        assert migrated["config"]["tag"] == "v1"
+
+    def test_migrate_entry_idempotent(self):
+        entry = {
+            "name": "p",
+            "config": {"capabilities": [{"class_name": "a.b.C"}]},
+        }
+        once = _migrate_entry(entry)
+        twice = _migrate_entry(once)
+        assert once == twice
+        assert once["config"]["capabilities"] == [{"class_name": "a.b.C"}]
+
+    def test_migrate_entry_no_provides_unchanged(self):
+        entry = {"name": "p", "config": {"path": "/p"}}
+        assert _migrate_entry(entry) == entry
+
+    def test_old_plugins_json_v1_migrated_on_load(self, store_file):
+        # A persisted v1 store with config.provides is rewritten to
+        # config.capabilities on load.
+        data = {
+            "version": 1,
+            "plugins": [
+                {
+                    "name": "legacy",
+                    "enabled": True,
+                    "source": "git",
+                    "config": {
+                        "repo": "https://example.com/legacy.git",
+                        "tag": "v0.1.0",
+                        "provides": [{"class_name": "legacy.node.Foo"}],
+                    },
+                }
+            ],
+        }
+        store_file.write_text(json.dumps(data), encoding="utf-8")
+
+        loaded = load_plugin_entries()
+        assert len(loaded) == 1
+        config = loaded[0]["config"]
+        assert "provides" not in config
+        assert config["capabilities"] == [{"class_name": "legacy.node.Foo"}]
+
+    def test_load_migration_is_idempotent_round_trip(self, store_file):
+        # v1 store loads → migrated → save (stamps v2) → reload yields the same
+        # capabilities and a v2 version stamp.
+        data = {
+            "version": 1,
+            "plugins": [
+                {
+                    "name": "legacy",
+                    "config": {"path": "/p", "provides": ["legacy.node.Foo"]},
+                }
+            ],
+        }
+        store_file.write_text(json.dumps(data), encoding="utf-8")
+
+        first = load_plugin_entries()
+        save_plugin_entries(first)
+        on_disk = json.loads(store_file.read_text(encoding="utf-8"))
+        assert on_disk["version"] == 2
+
+        second = load_plugin_entries()
+        assert second[0]["config"]["capabilities"] == ["legacy.node.Foo"]
+        assert "provides" not in second[0]["config"]
+
+    def test_migration_prefers_existing_capabilities(self):
+        # If both keys are somehow present, capabilities wins and provides drops.
+        entry = {
+            "name": "p",
+            "config": {
+                "capabilities": [{"class_name": "new.Node"}],
+                "provides": [{"class_name": "old.Node"}],
+            },
+        }
+        migrated = _migrate_entry(entry)
+        assert "provides" not in migrated["config"]
+        assert migrated["config"]["capabilities"] == [{"class_name": "new.Node"}]
+
+
 # ── reset_plugin_entries ─────────────────────────────────────────────
 
 
@@ -399,13 +498,25 @@ class TestMergePluginEntries:
 # ── build_manifest ───────────────────────────────────────────────────
 
 
+def _manifest_by_name(manifest: list[dict], name: str) -> dict:
+    """Return the single bare manifest with the given name (or raise)."""
+    matches = [m for m in manifest if m.get("name") == name]
+    assert len(matches) == 1, f"expected exactly one {name!r}, got {matches}"
+    return matches[0]
+
+
 class TestBuildManifest:
+    def test_returns_list_of_bare_manifests(self):
+        entries = [_make_entry(name="p1", config={"path": "/abs/path"})]
+        manifest = build_manifest(entries)
+        assert isinstance(manifest, list)
+        assert manifest == [{"name": "p1", "path": "/abs/path"}]
+
     def test_basic_manifest(self):
         entries = [_make_entry(name="p1", config={"path": "/abs/path"})]
         manifest = build_manifest(entries)
-        assert "plugins" in manifest
-        assert "p1" in manifest["plugins"]
-        assert manifest["plugins"]["p1"]["path"] == "/abs/path"
+        p1 = _manifest_by_name(manifest, "p1")
+        assert p1["path"] == "/abs/path"
 
     def test_only_enabled_entries_by_default(self):
         entries = [
@@ -413,8 +524,9 @@ class TestBuildManifest:
             _make_entry(name="off", enabled=False),
         ]
         manifest = build_manifest(entries)
-        assert "on" in manifest["plugins"]
-        assert "off" not in manifest["plugins"]
+        names = {m["name"] for m in manifest}
+        assert "on" in names
+        assert "off" not in names
 
     def test_enabled_only_false_includes_all(self):
         entries = [
@@ -422,8 +534,9 @@ class TestBuildManifest:
             _make_entry(name="off", enabled=False),
         ]
         manifest = build_manifest(entries, enabled_only=False)
-        assert "on" in manifest["plugins"]
-        assert "off" in manifest["plugins"]
+        names = {m["name"] for m in manifest}
+        assert "on" in names
+        assert "off" in names
 
     def test_resolves_relative_path_with_origin(self, tmp_path):
         origin = tmp_path / "catalog.yaml"
@@ -436,7 +549,7 @@ class TestBuildManifest:
         ]
         manifest = build_manifest(entries)
         expected = str((tmp_path / "subdir" / "module").resolve())
-        assert manifest["plugins"]["rel"]["path"] == expected
+        assert _manifest_by_name(manifest, "rel")["path"] == expected
 
     def test_resolves_dotdot_path_with_origin(self, tmp_path):
         # Regression: `path: "../.."` in a YAML must resolve against the
@@ -452,7 +565,7 @@ class TestBuildManifest:
             ),
         ]
         manifest = build_manifest(entries)
-        assert manifest["plugins"]["builtin"]["path"] == str(tmp_path.resolve())
+        assert _manifest_by_name(manifest, "builtin")["path"] == str(tmp_path.resolve())
 
     def test_absolute_path_not_changed(self, tmp_path):
         abs_path = str((tmp_path / "absolute" / "module").resolve())
@@ -464,99 +577,101 @@ class TestBuildManifest:
             ),
         ]
         manifest = build_manifest(entries)
-        assert manifest["plugins"]["abs"]["path"] == abs_path
+        assert _manifest_by_name(manifest, "abs")["path"] == abs_path
 
     def test_no_origin_leaves_relative_path(self):
         entries = [_make_entry(name="norig", config={"path": "relative/path"})]
         manifest = build_manifest(entries)
-        assert manifest["plugins"]["norig"]["path"] == "relative/path"
+        assert _manifest_by_name(manifest, "norig")["path"] == "relative/path"
 
-    def test_removes_empty_provides_list(self):
-        entries = [_make_entry(name="prov", config={"provides": []})]
+    def test_removes_empty_capabilities_list(self):
+        entries = [_make_entry(name="cap", config={"capabilities": []})]
         manifest = build_manifest(entries)
-        assert "provides" not in manifest["plugins"]["prov"]
+        assert "capabilities" not in _manifest_by_name(manifest, "cap")
 
-    def test_coerces_bare_string_provides_to_catalog_entries(self):
-        # The manifest schema now requires CatalogNodeEntry objects; bare class
-        # strings must be wrapped into {class_name: ...} dicts.
-        entries = [_make_entry(name="prov", config={"provides": ["node.Foo"]})]
+    def test_coerces_bare_string_capabilities_to_entries(self):
+        # The manifest schema now requires PluginCapabilityEntry objects; bare
+        # class strings must be wrapped into {class_name: ...} dicts.
+        entries = [_make_entry(name="cap", config={"capabilities": ["pkg.node.Foo"]})]
         manifest = build_manifest(entries)
-        assert manifest["plugins"]["prov"]["provides"] == [{"class_name": "node.Foo"}]
+        assert _manifest_by_name(manifest, "cap")["capabilities"] == [
+            {"class_name": "pkg.node.Foo"}
+        ]
 
-    def test_leaves_dict_provides_untouched(self):
-        entry_dict = {"class_name": "node.Foo", "category": "transform"}
-        entries = [_make_entry(name="prov", config={"provides": [entry_dict]})]
+    def test_leaves_dict_capabilities_untouched(self):
+        entry_dict = {"class_name": "pkg.node.Foo", "category": "transform"}
+        entries = [_make_entry(name="cap", config={"capabilities": [entry_dict]})]
         manifest = build_manifest(entries)
-        assert manifest["plugins"]["prov"]["provides"] == [entry_dict]
+        assert _manifest_by_name(manifest, "cap")["capabilities"] == [entry_dict]
 
-    def test_provides_entries_validate_as_catalog_node_entry(self):
-        from cuvis_ai_schemas.catalog import CatalogNodeEntry
+    def test_capabilities_entries_validate_as_capability_entry(self):
+        from cuvis_ai_schemas.plugin import PluginCapabilityEntry
 
-        entries = [_make_entry(name="prov", config={"provides": ["pkg.mod.Node"]})]
+        entries = [_make_entry(name="cap", config={"capabilities": ["pkg.mod.Node"]})]
         manifest = build_manifest(entries)
-        for raw in manifest["plugins"]["prov"]["provides"]:
-            CatalogNodeEntry(**raw)  # raises if the wrapped shape is invalid
+        for raw in _manifest_by_name(manifest, "cap")["capabilities"]:
+            PluginCapabilityEntry(**raw)  # raises if the wrapped shape is invalid
 
-    def test_empty_entries_produces_empty_manifest(self):
+    def test_empty_entries_produces_empty_list(self):
         manifest = build_manifest([])
-        assert manifest == {"plugins": {}}
+        assert manifest == []
 
     def test_skips_invalid_entries(self):
         entries = [None, {"no_name": True}, _make_entry(name="ok")]
         manifest = build_manifest(entries)
-        assert list(manifest["plugins"].keys()) == ["ok"]
+        assert [m["name"] for m in manifest] == ["ok"]
 
     def test_config_is_copied_not_mutated(self):
-        config = {"path": "rel/path", "provides": []}
+        config = {"path": "rel/path", "capabilities": []}
         origin = "/base/catalog.yaml"
         entries = [_make_entry(name="mut", config=config, origin=origin)]
         build_manifest(entries)
         # Original config should not be mutated
         assert config["path"] == "rel/path"
-        assert config["provides"] == []
+        assert config["capabilities"] == []
 
 
-# ── _coerce_provides ─────────────────────────────────────────────────
+# ── _coerce_capabilities ─────────────────────────────────────────────
 
 
-class TestCoerceProvides:
+class TestCoerceCapabilities:
     def test_wraps_string_entries(self):
-        config = {"provides": ["a.b.C", "a.b.D"]}
-        result = _coerce_provides(config)
-        assert result["provides"] == [{"class_name": "a.b.C"}, {"class_name": "a.b.D"}]
+        config = {"capabilities": ["a.b.C", "a.b.D"]}
+        result = _coerce_capabilities(config)
+        assert result["capabilities"] == [{"class_name": "a.b.C"}, {"class_name": "a.b.D"}]
 
     def test_leaves_dict_entries(self):
-        config = {"provides": [{"class_name": "a.b.C", "category": "sink"}]}
-        result = _coerce_provides(config)
-        assert result["provides"] == [{"class_name": "a.b.C", "category": "sink"}]
+        config = {"capabilities": [{"class_name": "a.b.C", "category": "sink"}]}
+        result = _coerce_capabilities(config)
+        assert result["capabilities"] == [{"class_name": "a.b.C", "category": "sink"}]
 
     def test_mixed_entries(self):
-        config = {"provides": ["a.b.C", {"class_name": "a.b.D"}]}
-        result = _coerce_provides(config)
-        assert result["provides"] == [{"class_name": "a.b.C"}, {"class_name": "a.b.D"}]
+        config = {"capabilities": ["a.b.C", {"class_name": "a.b.D"}]}
+        result = _coerce_capabilities(config)
+        assert result["capabilities"] == [{"class_name": "a.b.C"}, {"class_name": "a.b.D"}]
 
     def test_idempotent(self):
-        once = _coerce_provides({"provides": ["a.b.C"]})
-        twice = _coerce_provides(once)
-        assert once["provides"] == twice["provides"] == [{"class_name": "a.b.C"}]
+        once = _coerce_capabilities({"capabilities": ["a.b.C"]})
+        twice = _coerce_capabilities(once)
+        assert once["capabilities"] == twice["capabilities"] == [{"class_name": "a.b.C"}]
 
-    def test_no_provides_returns_same_object(self):
+    def test_no_capabilities_returns_same_object(self):
         config = {"repo": "x", "tag": "v1"}
-        assert _coerce_provides(config) is config
+        assert _coerce_capabilities(config) is config
 
-    def test_non_list_provides_returns_same_object(self):
-        config = {"provides": "not-a-list"}
-        assert _coerce_provides(config) is config
+    def test_non_list_capabilities_returns_same_object(self):
+        config = {"capabilities": "not-a-list"}
+        assert _coerce_capabilities(config) is config
 
     def test_all_dict_entries_returns_same_object(self):
         # Nothing to wrap → original object returned unchanged (idempotent fast path).
-        config = {"provides": [{"class_name": "a.b.C"}]}
-        assert _coerce_provides(config) is config
+        config = {"capabilities": [{"class_name": "a.b.C"}]}
+        assert _coerce_capabilities(config) is config
 
     def test_does_not_mutate_input(self):
-        config = {"provides": ["a.b.C"]}
-        _coerce_provides(config)
-        assert config["provides"] == ["a.b.C"]
+        config = {"capabilities": ["a.b.C"]}
+        _coerce_capabilities(config)
+        assert config["capabilities"] == ["a.b.C"]
 
 
 # ── _resolve_local_path ──────────────────────────────────────────────
@@ -572,10 +687,10 @@ class TestResolveLocalPath:
 
     def test_absolute_path_passes_through_unchanged(self, tmp_path):
         abs_path = str((tmp_path / "plugin_dir").resolve())
-        config = {"path": abs_path, "provides": ["a.b.C"]}
+        config = {"path": abs_path, "capabilities": ["a.b.C"]}
         resolved = _resolve_local_path(config, tmp_path / "elsewhere")
         assert resolved["path"] == abs_path
-        assert resolved["provides"] == ["a.b.C"]
+        assert resolved["capabilities"] == ["a.b.C"]
 
     def test_missing_path_returns_config_unchanged(self, tmp_path):
         config = {"repo": "git@example.com:org/plugin.git", "tag": "v1"}
@@ -605,43 +720,42 @@ class TestResolveLocalPath:
 
 class TestWriteManifestTemp:
     def test_creates_file(self):
-        manifest = {"plugins": {"p1": {}}}
+        manifest = [{"name": "p1"}]
         path = write_manifest_temp(manifest)
         try:
             assert path.exists()
         finally:
             path.unlink(missing_ok=True)
 
-    def test_file_contains_valid_json(self):
-        manifest = {"plugins": {"p1": {"key": "value"}}}
+    def test_file_contains_valid_json_list(self):
+        manifest = [{"name": "p1", "key": "value"}]
         path = write_manifest_temp(manifest)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             assert data == manifest
+            assert isinstance(data, list)
         finally:
             path.unlink(missing_ok=True)
 
     def test_file_has_json_suffix(self):
-        manifest = {"plugins": {}}
-        path = write_manifest_temp(manifest)
+        path = write_manifest_temp([])
         try:
             assert path.suffix == ".json"
         finally:
             path.unlink(missing_ok=True)
 
     def test_returns_path_object(self):
-        manifest = {"plugins": {}}
-        path = write_manifest_temp(manifest)
+        path = write_manifest_temp([])
         try:
             assert isinstance(path, Path)
         finally:
             path.unlink(missing_ok=True)
 
     def test_empty_manifest(self):
-        path = write_manifest_temp({})
+        path = write_manifest_temp([])
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            assert data == {}
+            assert data == []
         finally:
             path.unlink(missing_ok=True)
 
@@ -651,30 +765,32 @@ class TestWriteManifestTemp:
 
 class TestLoadManifestEntries:
     def test_valid_manifest(self, tmp_path):
-        manifest = tmp_path / "plugins.yaml"
+        manifest = tmp_path / "my_plugin.yaml"
         manifest.write_text(
-            "plugins:\n"
-            "  my_plugin:\n"
-            "    path: /some/path\n"
-            "    provides:\n"
-            "      - my_plugin.node.Foo\n",
+            "name: my_plugin\npath: /some/path\ncapabilities:\n  - my_plugin.node.Foo\n",
             encoding="utf-8",
         )
         entries = _load_manifest_entries(manifest)
         assert len(entries) == 1
         assert entries[0]["name"] == "my_plugin"
         assert entries[0]["config"]["path"] == "/some/path"
+        # name is stored only on the entry, not duplicated into config.
+        assert "name" not in entries[0]["config"]
+        assert entries[0]["config"]["capabilities"] == ["my_plugin.node.Foo"]
         assert entries[0]["origin"] == str(manifest)
 
-    def test_multiple_plugins(self, tmp_path):
-        manifest = tmp_path / "plugins.yaml"
+    def test_one_file_is_one_plugin(self, tmp_path):
+        # Even a git-sourced manifest is a single bare plugin per file.
+        manifest = tmp_path / "alpha.yaml"
         manifest.write_text(
-            "plugins:\n  alpha:\n    path: /a\n  beta:\n    path: /b\n",
+            "name: alpha\nrepo: https://example.com/a.git\ntag: v1\ncapabilities:\n  - a.b.C\n",
             encoding="utf-8",
         )
         entries = _load_manifest_entries(manifest)
-        assert len(entries) == 2
-        assert {e["name"] for e in entries} == {"alpha", "beta"}
+        assert len(entries) == 1
+        assert entries[0]["name"] == "alpha"
+        assert entries[0]["config"]["repo"] == "https://example.com/a.git"
+        assert entries[0]["config"]["tag"] == "v1"
 
     def test_nonexistent_file(self, tmp_path):
         entries = _load_manifest_entries(tmp_path / "missing.yaml")
@@ -692,16 +808,24 @@ class TestLoadManifestEntries:
         entries = _load_manifest_entries(manifest)
         assert entries == []
 
-    def test_no_plugins_key(self, tmp_path):
-        manifest = tmp_path / "noplugins.yaml"
+    def test_no_name_key(self, tmp_path):
+        manifest = tmp_path / "noname.yaml"
         manifest.write_text("something_else: true\n", encoding="utf-8")
         entries = _load_manifest_entries(manifest)
         assert entries == []
 
+    def test_old_plugins_wrapper_shape_is_skipped(self, tmp_path):
+        # An old multi-plugin file has no top-level string `name`, so it is
+        # skipped rather than mis-parsed.
+        manifest = tmp_path / "old.yaml"
+        manifest.write_text("plugins:\n  my_plugin:\n    path: /p\n", encoding="utf-8")
+        entries = _load_manifest_entries(manifest)
+        assert entries == []
+
     def test_entries_have_correct_defaults(self, tmp_path):
-        manifest = tmp_path / "plugins.yaml"
+        manifest = tmp_path / "test_plugin.yaml"
         manifest.write_text(
-            "plugins:\n  test_plugin:\n    path: /p\n",
+            "name: test_plugin\npath: /p\ncapabilities:\n  - p.q.R\n",
             encoding="utf-8",
         )
         entries = _load_manifest_entries(manifest)
@@ -715,15 +839,15 @@ class TestLoadManifestEntries:
 
 class TestLoadPluginEntriesFromDirectory:
     def test_loads_multiple_manifests(self, tmp_path):
-        (tmp_path / "a.yaml").write_text("plugins:\n  plugin_a:\n    path: /a\n", encoding="utf-8")
-        (tmp_path / "b.yaml").write_text("plugins:\n  plugin_b:\n    path: /b\n", encoding="utf-8")
+        (tmp_path / "a.yaml").write_text("name: plugin_a\npath: /a\n", encoding="utf-8")
+        (tmp_path / "b.yaml").write_text("name: plugin_b\npath: /b\n", encoding="utf-8")
         entries = load_plugin_entries_from_directory(tmp_path)
         assert len(entries) == 2
         assert {e["name"] for e in entries} == {"plugin_a", "plugin_b"}
 
     def test_deduplicates_across_manifests(self, tmp_path):
-        (tmp_path / "a.yaml").write_text("plugins:\n  dup:\n    path: /first\n", encoding="utf-8")
-        (tmp_path / "b.yaml").write_text("plugins:\n  dup:\n    path: /second\n", encoding="utf-8")
+        (tmp_path / "a.yaml").write_text("name: dup\npath: /first\n", encoding="utf-8")
+        (tmp_path / "b.yaml").write_text("name: dup\npath: /second\n", encoding="utf-8")
         entries = load_plugin_entries_from_directory(tmp_path)
         assert len(entries) == 1
         # b.yaml comes after a.yaml alphabetically, so it wins
@@ -739,22 +863,22 @@ class TestLoadPluginEntriesFromDirectory:
 
     def test_ignores_non_yaml_files(self, tmp_path):
         (tmp_path / "readme.txt").write_text("not a manifest", encoding="utf-8")
-        (tmp_path / "data.json").write_text('{"plugins": {}}', encoding="utf-8")
-        (tmp_path / "real.yaml").write_text("plugins:\n  real:\n    path: /r\n", encoding="utf-8")
+        (tmp_path / "data.json").write_text('{"name": "x"}', encoding="utf-8")
+        (tmp_path / "real.yaml").write_text("name: real\npath: /r\n", encoding="utf-8")
         entries = load_plugin_entries_from_directory(tmp_path)
         assert len(entries) == 1
         assert entries[0]["name"] == "real"
 
     def test_skips_invalid_yaml_files(self, tmp_path):
         (tmp_path / "bad.yaml").write_text("{bad yaml: [", encoding="utf-8")
-        (tmp_path / "good.yaml").write_text("plugins:\n  good:\n    path: /g\n", encoding="utf-8")
+        (tmp_path / "good.yaml").write_text("name: good\npath: /g\n", encoding="utf-8")
         entries = load_plugin_entries_from_directory(tmp_path)
         assert len(entries) == 1
         assert entries[0]["name"] == "good"
 
     def test_origin_set_per_manifest(self, tmp_path):
-        (tmp_path / "x.yaml").write_text("plugins:\n  px:\n    path: /x\n", encoding="utf-8")
-        (tmp_path / "y.yaml").write_text("plugins:\n  py:\n    path: /y\n", encoding="utf-8")
+        (tmp_path / "x.yaml").write_text("name: px\npath: /x\n", encoding="utf-8")
+        (tmp_path / "y.yaml").write_text("name: py\npath: /y\n", encoding="utf-8")
         entries = load_plugin_entries_from_directory(tmp_path)
         origins = {e["name"]: e["origin"] for e in entries}
         assert origins["px"] == str(tmp_path / "x.yaml")
