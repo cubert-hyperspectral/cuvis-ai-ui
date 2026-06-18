@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Changed `cuvis_ai_ui/grpc/client.py` `load_plugins` to read the server's renamed `registered_plugins` field — `LoadPlugins` now registers inline-catalog metadata rather than installing. The returned dict keeps its `loaded_plugins` key so call sites are unaffected.
+- Changed `cuvis_ai_ui/grpc/client.py` `load_plugins` to call the singular `LoadPlugin` RPC once per manifest (the batch `LoadPlugins` is gone) and to resolve each local plugin's relative `path` to an absolute path before sending, since the server cannot resolve a client-relative path. The returned dict keeps its `loaded_plugins` / `failed_plugins` keys so call sites are unaffected.
 - Changed `cuvis_ai_catalog.yaml` `provides:` from bare class-name strings to inline `CatalogNodeEntry` objects (FQCN plus port specs, category, tags, icon SVG), so the node palette is populated from the manifest without the server importing plugin code; bumped the cuvis-ai source tag to `v0.7.3`.
 - Added `scripts/regenerate_catalog.py` to regenerate the bundled catalog from cuvis-ai's `configs/plugins/cuvis_ai_builtin.yaml`, normalising port specs to the single-`CatalogPortSpec`-per-port (`variadic` flag) shape. Idempotent; re-run with `--tag` for a new cuvis-ai release.
 - Added `_coerce_provides` in `cuvis_ai_ui/settings/plugins.py` (applied in `build_manifest` and the Plugin Manager git/local loaders) to wrap bare class-name `provides:` entries into `{class_name: ...}` so manifests validate against the new schema. Updated the "Provided Nodes" help text: the palette is built from this list — the server no longer auto-discovers plugin nodes.

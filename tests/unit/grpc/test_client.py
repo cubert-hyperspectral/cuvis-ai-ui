@@ -186,44 +186,45 @@ def test_load_plugins_not_connected_raises_error():
 
 
 def test_load_plugins_reads_registered_plugins(tmp_path):
-    """load_plugins maps the server's registered_plugins field into loaded_plugins.
+    """load_plugins loops LoadPlugin over the bare-manifest list and aggregates.
 
-    The refactored server renamed LoadPluginsResponse.loaded_plugins to
-    registered_plugins (it registers catalog metadata rather than installing).
-    The client keeps its returned dict key stable for UI call sites.
+    The server's plugin RPC is singular (LoadPlugin registers one plugin per
+    call, returning registered_plugin / error); the client loops the catalog
+    and keeps its returned dict key stable for UI call sites.
     """
     manifest = tmp_path / "plugins.yaml"
-    manifest.write_text("plugins: {}\n", encoding="utf-8")
+    manifest.write_text("- name: adaclip\n- name: cuvis_ai_builtin\n", encoding="utf-8")
 
     client = CuvisAIClient()
     client._connected = True
     client.session_id = "s-1"
     client.stub = Mock()
-    client.stub.LoadPlugins.return_value = Mock(
-        registered_plugins=["adaclip", "cuvis_ai_builtin"],
-        failed_plugins={},
-    )
+    client.stub.LoadPlugin.side_effect = [
+        Mock(registered_plugin="adaclip", error=""),
+        Mock(registered_plugin="cuvis_ai_builtin", error=""),
+    ]
 
     result = client.load_plugins(manifest)
 
+    assert client.stub.LoadPlugin.call_count == 2
     assert result["loaded_plugins"] == ["adaclip", "cuvis_ai_builtin"]
     assert result["failed_plugins"] == []
     assert result["success"] is True
 
 
 def test_load_plugins_reports_failed_plugins(tmp_path):
-    """Failed manifest entries surface via failed_plugins; success is False."""
+    """A per-call error surfaces by manifest name via failed_plugins; success is False."""
     manifest = tmp_path / "plugins.yaml"
-    manifest.write_text("plugins: {}\n", encoding="utf-8")
+    manifest.write_text("- name: ok\n- name: bad\n", encoding="utf-8")
 
     client = CuvisAIClient()
     client._connected = True
     client.session_id = "s-1"
     client.stub = Mock()
-    client.stub.LoadPlugins.return_value = Mock(
-        registered_plugins=["ok"],
-        failed_plugins={"bad": "validation error"},
-    )
+    client.stub.LoadPlugin.side_effect = [
+        Mock(registered_plugin="ok", error=""),
+        Mock(registered_plugin="", error="bad: validation error"),
+    ]
 
     result = client.load_plugins(manifest)
 

@@ -687,7 +687,7 @@ class PluginManagerDialog(QDialog):
             ]
             bare["capabilities"] = capabilities
 
-        # The LoadPlugins payload is a list of bare manifests.
+        # The plugin-load payload is a list of bare manifests (one LoadPlugin per entry).
         self._load_plugins([bare], source="git")
 
     def _load_local_plugin(self) -> None:
@@ -728,7 +728,7 @@ class PluginManagerDialog(QDialog):
             ]
             bare["capabilities"] = capabilities
 
-        # The LoadPlugins payload is a list of bare manifests.
+        # The plugin-load payload is a list of bare manifests (one LoadPlugin per entry).
         self._load_plugins([bare], source="local")
 
     def _load_manifest_plugins(self) -> None:
@@ -820,8 +820,8 @@ class PluginManagerDialog(QDialog):
         """Load plugins from a list of bare plugin manifests.
 
         Args:
-            manifest: LoadPlugins payload: a list of bare plugin manifests
-                (each ``{"name": ..., **source, "capabilities": [...]}``).
+            manifest: a list of bare plugin manifests, registered one per
+                ``LoadPlugin`` call (each ``{"name": ..., **source, "capabilities": [...]}``).
             source: Plugin source label for persistence (git/local/manifest)
             origin: Optional source path for display
         """

@@ -45,10 +45,11 @@ DEFAULT_TAG = "v0.7.3"
 
 HEADER = """# cuvis-ai builtin plugin manifest (Cuvis.AI UI installer default)
 #
-# Loaded at UI startup via the LoadPlugins RPC so the bundled gRPC server
-# can resolve `cuvis_ai.node.*` classes without a separate local checkout.
-# LoadPlugins registers this as catalog metadata (it does not install); the
-# node palette is populated straight from the `capabilities:` entries below.
+# Loaded at UI startup via the LoadPlugin RPC (one call per manifest) so the
+# bundled gRPC server can resolve `cuvis_ai.node.*` classes without a separate
+# local checkout. LoadPlugin registers each as catalog metadata (it does not
+# install); the node palette is populated straight from the `capabilities:`
+# entries below.
 #
 # One file is one bare plugin manifest: a logical `name`, a source
 # (`repo` + `tag` or `path`), and the `capabilities` it provides.

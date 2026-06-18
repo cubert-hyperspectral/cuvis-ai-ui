@@ -294,7 +294,7 @@ def build_manifest(
     entries: list[dict[str, Any]],
     enabled_only: bool = True,
 ) -> list[dict[str, Any]]:
-    """Build the LoadPlugins payload: a list of bare plugin manifests.
+    """Build the plugin-load payload: a list of bare plugin manifests.
 
     Each enabled entry becomes one bare manifest ``{"name": ..., **config}`` —
     the wire shape the server expects (no ``plugins:`` wrapper). Relative local
@@ -324,10 +324,9 @@ def build_manifest(
 def write_manifest_temp(manifest: list[dict[str, Any]] | dict[str, Any]) -> Path:
     """Write a manifest payload to a temporary JSON file.
 
-    The payload is whatever crosses the gRPC boundary as ``config_bytes``. For
-    LoadPlugins that is a list of bare plugin manifests (see
-    :func:`build_manifest`); the client reads this file back verbatim and sends
-    its JSON as the request payload.
+    The payload is the plugin set the UI registers: a list of bare plugin
+    manifests (see :func:`build_manifest`). The gRPC client reads this file back
+    and registers each manifest with one ``LoadPlugin`` call.
     """
     import tempfile
 

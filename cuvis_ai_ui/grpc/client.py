@@ -276,84 +276,91 @@ class CuvisAIClient:
     # -----------------
 
     def load_plugins(self, manifest_path: str | Path) -> dict[str, Any]:
-        """Load plugins from manifest file.
+        """Register plugins from a manifest file into the session catalog.
+
+        The manifest file holds a list of bare single-plugin manifests. The
+        server's plugin RPC is singular (``LoadPlugin``), so this issues one
+        call per manifest and aggregates the results. A local plugin with a
+        relative ``path`` is resolved to absolute against the manifest file's
+        directory before sending, since the server runs elsewhere and cannot
+        resolve a client-relative path.
 
         Parameters
         ----------
         manifest_path : str | Path
-            Path to plugins.yaml or plugins.json manifest file
+            Path to a plugins.yaml / .json manifest file (a list of bare
+            single-plugin manifests).
 
         Returns
         -------
         dict[str, Any]
             Response with:
-            - success (bool): Overall success status
+            - success (bool): True iff at least one plugin registered and none failed.
             - loaded_plugins (list[str]): Plugin names registered into the session
               catalog. The server registers manifest entries as catalog metadata;
               it does not install or import them (that happens lazily on LoadPipeline).
-            - failed_plugins (list[str]): Plugin names that failed manifest validation
+            - failed_plugins (list[str]): Plugin names that failed validation / precondition.
 
         Raises
         ------
         RuntimeError
-            If not connected or load fails
+            If not connected or the RPC transport fails.
         """
         if not self._connected or not self.stub or not self.session_id:
             raise RuntimeError("Not connected to server or no active session")
 
+        import json
+        from pathlib import Path
+
+        import yaml
+
+        manifest_path = Path(manifest_path)
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+
+        with open(manifest_path, "r") as f:
+            # A list of bare single-plugin manifests (YAML also parses JSON).
+            payload = yaml.safe_load(f)
+        manifests = payload if isinstance(payload, list) else [payload]
+
+        loaded: list[str] = []
+        failed: list[str] = []
         try:
-            import json
-            from pathlib import Path
+            # LoadPlugin registers one plugin per call, so loop the catalog.
+            for entry in manifests:
+                manifest = dict(entry)
+                # Resolve a relative local path to absolute against the manifest
+                # dir: the server cannot resolve a client-relative path.
+                if "repo" not in manifest and manifest.get("path"):
+                    p = Path(manifest["path"])
+                    if not p.is_absolute():
+                        manifest["path"] = str((manifest_path.parent / p).resolve())
 
-            import yaml
-
-            # Read manifest file
-            manifest_path = Path(manifest_path)
-            if not manifest_path.exists():
-                raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
-
-            with open(manifest_path, "r") as f:
-                # Parse YAML (also handles JSON). The LoadPlugins payload is a
-                # LIST of bare single-plugin manifests; it is sent verbatim.
-                manifest_payload = yaml.safe_load(f)
-
-            # Convert to JSON for gRPC transport
-            manifest_json = json.dumps(manifest_payload)
-
-            # Send to server
-            response = self.stub.LoadPlugins(
-                cuvis_ai_pb2.LoadPluginsRequest(
-                    session_id=self.session_id,
-                    manifest=cuvis_ai_pb2.PluginManifest(config_bytes=manifest_json.encode()),
-                ),
-                timeout=self.timeout,
-            )
-
-            logger.info(
-                f"Registered {len(response.registered_plugins)} plugins: "
-                f"{', '.join(response.registered_plugins)}"
-            )
-
-            if response.failed_plugins:
-                logger.warning(
-                    f"Failed to register {len(response.failed_plugins)} plugins: "
-                    f"{', '.join(response.failed_plugins)}"
+                name = manifest.get("name", "<unnamed>")
+                response = self.stub.LoadPlugin(
+                    cuvis_ai_pb2.LoadPluginRequest(
+                        session_id=self.session_id,
+                        manifest=cuvis_ai_pb2.PluginManifest(
+                            config_bytes=json.dumps(manifest).encode()
+                        ),
+                    ),
+                    timeout=self.timeout,
                 )
-
-            # The server renamed this field to registered_plugins (LoadPlugins now
-            # registers catalog metadata rather than installing). Keep the returned
-            # dict key as loaded_plugins so UI call sites stay unchanged.
-            loaded = list(response.registered_plugins)
-            failed = list(response.failed_plugins.keys())
-            return {
-                "success": len(loaded) > 0 and len(failed) == 0,
-                "loaded_plugins": loaded,
-                "failed_plugins": failed,
-            }
-
+                if response.registered_plugin:
+                    loaded.append(response.registered_plugin)
+                else:
+                    failed.append(name)
+                    logger.warning(f"Failed to register plugin '{name}': {response.error}")
         except grpc.RpcError as e:
             logger.error(f"Failed to load plugins: {e.details()}")
             raise RuntimeError(f"Failed to load plugins: {e.details()}") from e
+
+        logger.info(f"Registered {len(loaded)} plugins: {', '.join(loaded)}")
+        return {
+            "success": len(loaded) > 0 and len(failed) == 0,
+            "loaded_plugins": loaded,
+            "failed_plugins": failed,
+        }
 
     # Node Discovery
     # --------------

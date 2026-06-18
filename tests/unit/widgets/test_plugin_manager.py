@@ -596,7 +596,7 @@ def test_load_git_plugin_with_provides(mock_info, mock_temp, qapp, mock_grpc_cli
 
     dialog._load_git_plugin()
 
-    # The LoadPlugins payload is a LIST of bare manifests. Capabilities are
+    # The plugin-load payload is a LIST of bare manifests. Capabilities are
     # PluginCapabilityEntry dicts: the schema no longer accepts bare class-name
     # strings, so each FQCN line is wrapped into a {class_name: ...} entry.
     manifest_arg = mock_temp.call_args[0][0]
