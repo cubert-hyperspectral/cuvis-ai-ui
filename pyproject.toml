@@ -40,7 +40,7 @@ dependencies = [
     "loguru>=0.7.3",
     "click>=8.3.1",
     "grpcio-tools>=1.80.0",
-    "cuvis-ai-schemas[proto]>=0.5.1",
+    "cuvis-ai-schemas[proto]>=0.7.0",
     # Required transitively by cuvis-ai-schemas (ports.py imports torch)
     "torch>=2.10.0",
 ]
@@ -157,7 +157,7 @@ torch = { index = "pytorch-cpu" }
 # Local editable override for developing against an on-disk schemas checkout.
 # Schemas is published on PyPI, so the default resolution is from the index;
 # uncomment to use the sibling checkout for lockstep development.
-cuvis-ai-schemas = { path = "../../cuvis-ai-schemas/cuvis-ai-schemas", editable = true }
+# cuvis-ai-schemas = { path = "../../cuvis-ai-schemas/cuvis-ai-schemas", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
