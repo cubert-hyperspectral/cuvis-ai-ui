@@ -10,7 +10,7 @@ from loguru import logger
 
 from cuvis_ai_ui.settings.common import app_config_dir
 
-PLUGIN_STORE_VERSION = 1
+PLUGIN_STORE_VERSION = 2
 
 
 def get_plugin_store_path() -> Path:
@@ -48,14 +48,47 @@ def _resolve_local_path(config: dict[str, Any], manifest_dir: Path) -> dict[str,
     return resolved
 
 
+def _coerce_capabilities(config: dict[str, Any]) -> dict[str, Any]:
+    """Wrap bare-string ``capabilities`` entries as ``{"class_name": ...}`` dicts.
+
+    The plugin manifest schema requires each ``capabilities`` entry to be a
+    PluginCapabilityEntry object (an FQCN ``class_name`` plus optional palette
+    metadata). Legacy manifests and the Plugin Manager's free-text input use a
+    plain list of class-name strings; wrap those so they validate server-side.
+    Entries that are already dicts are left untouched, so this is idempotent.
+
+    Args:
+        config: Plugin config dict (may contain a ``capabilities`` list).
+
+    Returns:
+        The original dict if nothing needed wrapping, otherwise a shallow copy
+        with each string ``capabilities`` entry replaced by ``{"class_name": ...}``.
+    """
+    capabilities = config.get("capabilities")
+    if not isinstance(capabilities, list):
+        return config
+    coerced = [{"class_name": entry} if isinstance(entry, str) else entry for entry in capabilities]
+    if coerced == capabilities:
+        return config
+    result = dict(config)
+    result["capabilities"] = coerced
+    return result
+
+
 def _load_manifest_entries(manifest_path: Path) -> list[dict[str, Any]]:
-    """Load plugin entries from a single manifest YAML file.
+    """Load the plugin entry from a single bare manifest YAML file.
+
+    One manifest file is one plugin. The whole file is parsed as a single bare
+    manifest dict: ``name`` is the logical plugin name and the remaining keys
+    (``path`` / ``repo`` / ``tag`` / ``package_name`` / ``capabilities``) make
+    up the persisted ``config``.
 
     Args:
         manifest_path: Path to a plugin manifest YAML file.
 
     Returns:
-        List of plugin entry dicts parsed from the manifest.
+        A single-element list with the parsed plugin entry, or an empty list if
+        the file does not parse to a dict with a string ``name``.
     """
     try:
         import yaml
@@ -66,24 +99,23 @@ def _load_manifest_entries(manifest_path: Path) -> list[dict[str, Any]]:
         logger.warning(f"Failed to read manifest {manifest_path}: {exc}")
         return []
 
-    plugins = manifest.get("plugins", {})
-    if not isinstance(plugins, dict):
+    if not isinstance(manifest, dict):
         return []
 
-    entries: list[dict[str, Any]] = []
-    for name, config in plugins.items():
-        if not isinstance(name, str) or not isinstance(config, dict):
-            continue
-        entries.append(
-            {
-                "name": name,
-                "enabled": True,
-                "source": "manifest",
-                "config": config,
-                "origin": str(manifest_path),
-            }
-        )
-    return entries
+    name = manifest.get("name")
+    if not isinstance(name, str) or not name:
+        return []
+
+    config = {k: v for k, v in manifest.items() if k != "name"}
+    return [
+        {
+            "name": name,
+            "enabled": True,
+            "source": "manifest",
+            "config": config,
+            "origin": str(manifest_path),
+        }
+    ]
 
 
 def get_default_plugin_entries() -> list[dict[str, Any]]:
@@ -118,6 +150,31 @@ def load_plugin_entries_from_directory(directory: str | Path) -> list[dict[str, 
         all_entries.extend(entries)
 
     return _dedupe_entries(all_entries)
+
+
+def _migrate_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Migrate a persisted entry from an older store version in place-safely.
+
+    Version 1 stored a plugin's provided nodes under ``config["provides"]``.
+    The plugin schema renamed that key to ``capabilities``; rewrite any legacy
+    ``config["provides"]`` to ``config["capabilities"]`` so loading an old
+    ``plugins.json`` yields the new shape. Idempotent: an entry that already
+    uses ``capabilities`` (or has neither key) is returned unchanged.
+
+    Args:
+        entry: A persisted plugin entry dict.
+
+    Returns:
+        The entry with ``config["provides"]`` renamed to
+        ``config["capabilities"]`` when present.
+    """
+    config = entry.get("config")
+    if not isinstance(config, dict) or "provides" not in config:
+        return entry
+    migrated_config = {k: v for k, v in config.items() if k != "provides"}
+    # Don't clobber an existing capabilities key; prefer it when both are set.
+    migrated_config.setdefault("capabilities", config["provides"])
+    return {**entry, "config": migrated_config}
 
 
 def _normalize_entry(entry: Any) -> dict[str, Any] | None:
@@ -183,7 +240,7 @@ def load_plugin_entries() -> list[dict[str, Any]]:
 
         if isinstance(plugins, list):
             entries = [_normalize_entry(p) for p in plugins]
-            normalized = [e for e in entries if e is not None]
+            normalized = [_migrate_entry(e) for e in entries if e is not None]
             return _dedupe_entries(normalized)
 
     return get_default_plugin_entries()
@@ -236,9 +293,16 @@ def merge_plugin_entries(
 def build_manifest(
     entries: list[dict[str, Any]],
     enabled_only: bool = True,
-) -> dict[str, Any]:
-    """Build a plugin manifest dictionary from persisted entries."""
-    manifest: dict[str, Any] = {"plugins": {}}
+) -> list[dict[str, Any]]:
+    """Build the plugin-load payload: a list of bare plugin manifests.
+
+    Each enabled entry becomes one bare manifest ``{"name": ..., **config}`` —
+    the wire shape the server expects (no ``plugins:`` wrapper). Relative local
+    paths are resolved against the entry's origin and bare-string
+    ``capabilities`` are wrapped into ``{"class_name": ...}`` dicts; an empty
+    ``capabilities`` list is dropped.
+    """
+    manifests: list[dict[str, Any]] = []
     for entry in entries:
         normalized = _normalize_entry(entry)
         if not normalized:
@@ -249,15 +313,21 @@ def build_manifest(
         origin = normalized.get("origin")
         if origin:
             config = _resolve_local_path(config, Path(origin).parent)
-        provides = config.get("provides")
-        if isinstance(provides, list) and not provides:
-            config.pop("provides", None)
-        manifest["plugins"][normalized["name"]] = config
-    return manifest
+        config = _coerce_capabilities(config)
+        capabilities = config.get("capabilities")
+        if isinstance(capabilities, list) and not capabilities:
+            config.pop("capabilities", None)
+        manifests.append({"name": normalized["name"], **config})
+    return manifests
 
 
-def write_manifest_temp(manifest: dict[str, Any]) -> Path:
-    """Write a manifest dictionary to a temporary JSON file."""
+def write_manifest_temp(manifest: list[dict[str, Any]] | dict[str, Any]) -> Path:
+    """Write a manifest payload to a temporary JSON file.
+
+    The payload is the plugin set the UI registers: a list of bare plugin
+    manifests (see :func:`build_manifest`). The gRPC client reads this file back
+    and registers each manifest with one ``LoadPlugin`` call.
+    """
     import tempfile
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:

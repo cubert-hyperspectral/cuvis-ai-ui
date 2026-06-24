@@ -195,6 +195,73 @@ def test_to_config_with_connections(pipeline_serializer, mock_graph):
     assert isinstance(config["connections"], list)
 
 
+def test_to_config_emits_plugins_from_registry(mock_graph, sample_node_info):
+    """to_config derives a bare-name plugins block from each node's owning plugin."""
+    from cuvis_ai_ui.adapters import NodeRegistry
+
+    plugin_node_info = {
+        **sample_node_info,
+        "class_name": "RTDETRDetection",
+        "full_path": "cuvis_ai_detr.node.RTDETRDetection",
+        "source": "plugin",
+        "plugin_name": "detr",
+    }
+    registry = NodeRegistry()
+    registry.register_nodes([sample_node_info, plugin_node_info])
+    serializer = PipelineSerializer(registry)
+
+    # One builtin node (plugin_name="") and one plugin node.
+    builtin = Mock(spec=CuvisNodeAdapter)
+    builtin.name = Mock(return_value="norm")
+    builtin.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "cuvis_ai.node.normalization.MinMaxNormalizer",
+            "name": "norm",
+            "hparams": {},
+        }
+    )
+    builtin.output_ports = Mock(return_value=[])
+
+    plugin_node = Mock(spec=CuvisNodeAdapter)
+    plugin_node.name = Mock(return_value="detr")
+    plugin_node.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "cuvis_ai_detr.node.RTDETRDetection",
+            "name": "detr",
+            "hparams": {},
+        }
+    )
+    plugin_node.output_ports = Mock(return_value=[])
+
+    mock_graph.all_nodes.return_value = [builtin, plugin_node]
+
+    config = serializer.to_config(mock_graph)
+
+    # Builtin (empty plugin_name) contributes nothing; only the plugin is declared.
+    assert config["plugins"] == ["detr"]
+
+
+def test_to_config_omits_plugins_when_none_known(pipeline_serializer, mock_graph):
+    """When no node maps to a plugin, the plugins field is omitted (not null)."""
+    node = Mock(spec=CuvisNodeAdapter)
+    node.name = Mock(return_value="unknown")
+    node.get_cuvis_config = Mock(
+        return_value={
+            "class_name": "some.unregistered.Node",
+            "name": "unknown",
+            "hparams": {},
+        }
+    )
+    node.output_ports = Mock(return_value=[])
+    mock_graph.all_nodes.return_value = [node]
+
+    config = pipeline_serializer.to_config(mock_graph)
+
+    assert "plugins" not in config
+    # Unattributable classes are surfaced as a warning, not dropped silently.
+    assert any("owning plugin" in w for w in pipeline_serializer.last_load_warnings)
+
+
 def test_to_yaml_file_creates_directory(pipeline_serializer, mock_graph, tmp_path):
     """Test that to_yaml_file creates parent directory if needed."""
     mock_graph.all_nodes.return_value = []

@@ -31,10 +31,14 @@ def sample_port_spec():
 
 @pytest.fixture
 def multi_input_port_spec():
-    """PortSpec with multi_input enabled."""
-    spec = PortSpec(dtype="float32", shape=(-1,), description="Multi-input port", optional=False)
-    spec.multi_input = True
-    return spec
+    """A variadic (fan-in) input PortSpec."""
+    return PortSpec(
+        dtype="float32",
+        shape=(-1,),
+        description="Variadic port",
+        optional=False,
+        variadic=True,
+    )
 
 
 def test_create_input_port(mock_node, sample_port_spec):

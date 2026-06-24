@@ -31,7 +31,7 @@ def create_input_port(node: BaseNode, port_name: str, spec: PortSpec) -> Any:
     port = node.add_input(
         name=port_name,
         color=display_spec.color,
-        multi_input=getattr(spec, "multi_input", False),
+        multi_input=getattr(spec, "variadic", False),
         display_name=True,  # Boolean: show the port name
     )
 

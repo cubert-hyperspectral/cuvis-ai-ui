@@ -2,7 +2,7 @@
 
 This script demonstrates how to:
 1. Connect to the gRPC server
-2. Load cuvis-ai catalog nodes via the LoadPlugins RPC
+2. Load cuvis-ai catalog nodes via the LoadPlugin RPC
 3. List all available nodes from the server
 """
 
@@ -28,7 +28,7 @@ def main():
             print(f"   ✓ Connected (session: {client.session_id})")
 
             # Load plugins from manifest
-            print("\n2. Loading cuvis-ai catalog nodes via LoadPlugins RPC...")
+            print("\n2. Loading cuvis-ai catalog nodes via LoadPlugin RPC...")
             try:
                 result = client.load_plugins(manifest_path)
 
@@ -90,7 +90,7 @@ def main():
     # Summary
     print("\n" + "=" * 60)
     print("Summary:")
-    print("   Nodes are loaded via gRPC LoadPlugins RPC")
+    print("   Nodes are loaded via gRPC LoadPlugin RPC")
     print("   The server manages node registration per session")
     print("   Visualization client communicates purely via gRPC")
     print("=" * 60)

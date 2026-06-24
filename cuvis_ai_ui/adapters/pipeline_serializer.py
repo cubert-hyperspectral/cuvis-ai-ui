@@ -519,6 +519,39 @@ class PipelineSerializer:
         config = self.to_config(graph, metadata)
         return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
+    def _collect_pipeline_plugins(self, nodes_list: list[NodeConfig]) -> list[str] | None:
+        """Derive the bare plugin-name set the pipeline depends on.
+
+        Looks up each node's class_name in the node registry and collects the
+        non-empty ``plugin_name`` of its owning plugin. Classes the registry
+        doesn't know (placeholders for unloaded plugins) are recorded as a load
+        warning rather than dropped silently.
+
+        Args:
+            nodes_list: Validated node configs from the graph.
+
+        Returns:
+            Sorted unique plugin names, or ``None`` when no plugin nodes are
+            present (so the field is omitted from the emitted yaml).
+        """
+        plugin_names: set[str] = set()
+        unknown: list[str] = []
+        for node_cfg in nodes_list:
+            info = self.node_registry.get_node_info(node_cfg.class_name)
+            if info is None:
+                unknown.append(node_cfg.class_name)
+                continue
+            plugin_name = info.get("plugin_name")
+            if plugin_name:
+                plugin_names.add(plugin_name)
+        if unknown:
+            self.last_load_warnings.append(
+                "Could not determine the owning plugin for: "
+                + ", ".join(sorted(set(unknown)))
+                + ". Add these to the pipeline's 'plugins:' block manually if needed."
+            )
+        return sorted(plugin_names) or None
+
     def to_config(
         self,
         graph: NodeGraph,
@@ -559,10 +592,19 @@ class PipelineSerializer:
                     )
                     connections_list.append(conn)
 
+        # Derive the plugin set the pipeline depends on. The refactored loader
+        # requires a bare-name `plugins:` block and resolves each node's
+        # class_name against it. A node's owning plugin comes from the registry
+        # (populated by ListAvailableNodes): cuvis-ai node-lib classes resolve to
+        # "cuvis_ai_builtin", core built-ins carry an empty plugin_name and need
+        # no declaration. Unknown/placeholder classes can't be attributed.
+        plugins_list = self._collect_pipeline_plugins(nodes_list)
+
         # Create validated PipelineConfig
         try:
             pipeline_config = PipelineConfig(
                 metadata=metadata if metadata else None,
+                plugins=plugins_list,
                 nodes=nodes_list,
                 connections=connections_list,
             )
@@ -570,14 +612,19 @@ class PipelineSerializer:
             # Note: cuvis-ai-schemas PipelineConfig doesn't have validate_connections_reference_nodes()
             # Connection validation happens during from_config when creating the graph
 
-            # Return validated configuration as dict
-            return pipeline_config.to_dict()
+            # Return validated configuration as dict. Drop a null plugins field so
+            # the emitted yaml stays clean when the graph has no plugin nodes.
+            result = pipeline_config.to_dict()
+            if result.get("plugins") is None:
+                result.pop("plugins", None)
+            return result
 
         except Exception as e:
             logger.error(f"Failed to create validated pipeline config: {e}")
             # Fallback to basic dict structure
             return {
                 "metadata": metadata or {"name": "Untitled Pipeline"},
+                **({"plugins": plugins_list} if plugins_list else {}),
                 "nodes": [
                     {
                         "class_name": n.class_name,
