@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-07-17
+
+- Raised the `cuvis-ai-schemas[proto]` floor to `>=0.8.0`, aligning the gRPC client with the released cuvis-ai-next contract. No code change: the UI consumes the static display tables and detects plugins via the gRPC `NodeInfo` fields.
+
 ## 0.3.0 - 2026-06-23
 
 - Changed `cuvis_ai_ui/grpc/client.py` `load_plugins` to call the singular `LoadPlugin` RPC once per manifest (the batch `LoadPlugins` is gone) and to resolve each local plugin's relative `path` to an absolute path before sending, since the server cannot resolve a client-relative path. The returned dict keeps its `loaded_plugins` / `failed_plugins` keys so call sites are unaffected.

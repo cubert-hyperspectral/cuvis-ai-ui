@@ -40,7 +40,7 @@ dependencies = [
     "loguru>=0.7.3",
     "click>=8.3.1",
     "grpcio-tools>=1.80.0",
-    "cuvis-ai-schemas[proto]>=0.7.0",
+    "cuvis-ai-schemas[proto]>=0.8.0",
     # Required transitively by cuvis-ai-schemas (ports.py imports torch)
     "torch>=2.10.0",
 ]
