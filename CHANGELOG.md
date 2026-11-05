@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 - 2026-11-05
+
+- Regenerated `cuvis_ai_catalog.yaml` from cuvis-ai v0.21.0 (165 nodes, was v0.9.0): the palette gains every node added since, and `Standardize` replaces `ZScoreNormalizerGlobal`, `ZScoreNormalizer` and `ChannelNormalizeNode` in the catalog; cuvis-ai 0.21.0 also removed `MeanCenter`, `UnitVarianceScaling` and `SNVCorrection`, which this bundled manifest never exposed.
+
 ## 0.3.1 - 2026-07-17
 
 - Raised the `cuvis-ai-schemas[proto]` floor to `>=0.8.0`, aligning the gRPC client with the released cuvis-ai-next contract. No code change: the UI consumes the static display tables and detects plugins via the gRPC `NodeInfo` fields.
