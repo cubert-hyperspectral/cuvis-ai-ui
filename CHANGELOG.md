@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Regenerated `cuvis_ai_catalog.yaml` from cuvis-ai v0.21.0 (165 nodes, was v0.9.0): the palette gains every node added since, and `Standardize` replaces `MeanCenter`, `UnitVarianceScaling`, `SNVCorrection`, `ZScoreNormalizer`, `ChannelNormalizeNode` and `ZScoreNormalizerGlobal`, which cuvis-ai 0.21.0 removed.
+- Regenerated `cuvis_ai_catalog.yaml` from cuvis-ai v0.21.0 (165 nodes, was v0.9.0): the palette gains every node added since, and `Standardize` replaces `ZScoreNormalizerGlobal`, `ZScoreNormalizer` and `ChannelNormalizeNode` in the catalog; cuvis-ai 0.21.0 also removed `MeanCenter`, `UnitVarianceScaling` and `SNVCorrection`, which this bundled manifest never exposed.
 
 ## 0.3.1 - 2026-07-17
 
