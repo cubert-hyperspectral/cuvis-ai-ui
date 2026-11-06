@@ -45,7 +45,7 @@ echo.
 :: Step 1: Ensure UI build deps are installed
 :: -------------------------------------------------------
 echo [1/5] Installing build dependencies...
-uv pip install pyinstaller>=6.0.0 Pillow>=10.0.0
+uv pip install "pyinstaller>=6.0.0" "Pillow>=10.0.0"
 if errorlevel 1 (
     echo ERROR: Failed to install build dependencies.
     exit /b 1
