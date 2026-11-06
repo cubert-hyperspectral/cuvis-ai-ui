@@ -402,15 +402,15 @@ wheels = [
 
 [[package]]
 name = "cuvis-ai-schemas"
-version = "0.8.0"
+version = "0.14.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/82/d4ca62c7f288816ca551d62a443a709e9ced031194663f907ce459e2a7f2/cuvis_ai_schemas-0.8.0.tar.gz", hash = "sha256:2d05e696610ddf23ce4e313b5434cd1a43ec5d58c999643d22dbcdb04efac4fc", size = 248505, upload-time = "2026-07-14T11:48:52.356Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/67/6a6b34943c062c3468e6d3cff8f74b060dda856c396bc9596e5a27e86b90/cuvis_ai_schemas-0.14.4.tar.gz", hash = "sha256:fd8b1a1f58e9d3a829d94954f9d4241cdd051fe7528661b32660165c7f287e71", size = 279511, upload-time = "2026-10-30T16:10:56.552Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/27/bf85fe21ce9dad1cd4649c611a2c16fa38f0a927b076e75b447d130b1c4c/cuvis_ai_schemas-0.8.0-py3-none-any.whl", hash = "sha256:1a378c4663de79f7b102a101e663296f05f0f40b6305ce369517924b38ff9d4d", size = 76506, upload-time = "2026-07-14T11:48:51.197Z" },
+    { url = "https://files.pythonhosted.org/packages/76/71/541d915b8ce619a2371b1c5a04e288e9a928e4847ae6e930d7f6fc5c9972/cuvis_ai_schemas-0.14.4-py3-none-any.whl", hash = "sha256:2e7029fb960a247ee75a557b95815fbedd55cf4ed24bec0869501a467063d192", size = 86866, upload-time = "2026-10-30T16:10:55Z" },
 ]
 
 [package.optional-dependencies]
@@ -466,7 +466,7 @@ viz = [
 requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.9.4" },
     { name = "click", specifier = ">=8.3.1" },
-    { name = "cuvis-ai-schemas", extras = ["proto"], specifier = ">=0.8.0" },
+    { name = "cuvis-ai-schemas", extras = ["proto"], specifier = ">=0.14.4" },
     { name = "cyclonedx-bom", marker = "extra == 'dev'", specifier = ">=7.3.0" },
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.4.0" },
     { name = "grpcio", specifier = ">=1.80.0" },
