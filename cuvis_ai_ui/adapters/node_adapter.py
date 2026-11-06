@@ -69,8 +69,33 @@ def _parse_port_spec(spec_data: dict[str, Any] | PortSpec) -> tuple[str, PortSpe
         shape=_parse_shape(spec_data.get("shape", [])),
         description=spec_data.get("description", ""),
         optional=spec_data.get("optional", False),
+        variadic=spec_data.get("variadic", False),
     )
     return port_name, spec
+
+
+def _drop_stale_node_type(graph: Any, node_class: type) -> None:
+    """Unregister an older class registered under ``node_class``'s node type.
+
+    NodeGraphQt refuses a second registration of the same type, so after the
+    plugin set changes (a newer manifest for the same class, a folder's own
+    plugins) the graph would keep creating nodes from the old class with its old
+    ports. Removing the stale entry lets the new class register in its place.
+    """
+    factory = getattr(graph, "node_factory", None)
+    nodes = getattr(factory, "nodes", None)
+    if not isinstance(nodes, dict):
+        return
+    node_type = node_class.type_  # type: ignore[attr-defined]
+    existing = nodes.get(node_type)
+    if existing is None or existing is node_class:
+        return
+    del nodes[node_type]
+    names = getattr(factory, "names", None)
+    if isinstance(names, dict):
+        types = names.get(existing.NODE_NAME, [])
+        if node_type in types:
+            types.remove(node_type)
 
 
 def category_color(category: NodeCategory) -> tuple[int, int, int, int]:
@@ -433,6 +458,7 @@ class NodeRegistry:
 
         count = 0
         for class_path, node_class in self._node_classes.items():
+            _drop_stale_node_type(graph, node_class)
             try:
                 graph.register_node(node_class)
                 count += 1

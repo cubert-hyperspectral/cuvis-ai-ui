@@ -52,6 +52,9 @@ def test_from_yaml_file_success(pipeline_serializer, temp_pipeline_file, mock_gr
     mock_node.set_name = Mock()
     mock_node.cuvis_hparams = {}
     mock_node.cuvis_execution_stages = {"always"}
+    mock_node.inputs = Mock(return_value={"cube": Mock()})
+    mock_node.outputs = Mock(return_value={"cube": Mock()})
+    mock_node.output_ports = Mock(return_value=[])
     mock_graph.create_node.return_value = mock_node
 
     metadata = pipeline_serializer.from_yaml_file(temp_pipeline_file, mock_graph)

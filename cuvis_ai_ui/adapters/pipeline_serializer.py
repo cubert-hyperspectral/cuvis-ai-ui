@@ -39,6 +39,21 @@ from .node_adapter import CuvisNodeAdapter, NodeRegistry
 from .port_helpers import create_input_port, create_output_port
 
 
+def _inferred_port_spec(is_input: bool) -> PortSpec:
+    """Spec for a port known only from the pipeline's connections.
+
+    Inferred inputs accept fan-in, so no edge of the yaml is dropped when two
+    sources feed the same port.
+    """
+    return PortSpec(
+        dtype="any",
+        shape=(),
+        description="(inferred from pipeline connections)",
+        optional=is_input,
+        variadic=is_input,
+    )
+
+
 class PipelineSerializer:
     """Bidirectional serializer between cuvis-ai YAML and NodeGraphQt.
 
@@ -56,10 +71,15 @@ class PipelineSerializer:
             node_registry: Registry of available cuvis-ai nodes
         """
         self.node_registry = node_registry
+        self.known_plugins: set[str] | None = None
+        """Names of the registered plugins; when set, a pipeline's ``plugins:`` is checked."""
         self.last_load_warnings: list[str] = []
+        self.last_missing_connections: list[str] = []
+        """YAML connections the last load could not draw, as ``source -> target``."""
         self._load_missing_nodes: set[str] = set()
         self._load_failed_nodes: list[str] = []
         self._load_failed_connections = 0
+        self._load_inferred_port_classes: set[str] = set()
         self._placeholder_class_cache: dict[str, type] = {}
 
     def from_yaml_file(self, path: str | Path, graph: NodeGraph) -> dict[str, Any]:
@@ -113,9 +133,11 @@ class PipelineSerializer:
         """
         # Reset load warnings
         self.last_load_warnings = []
+        self.last_missing_connections = []
         self._load_missing_nodes = set()
         self._load_failed_nodes = []
         self._load_failed_connections = 0
+        self._load_inferred_port_classes = set()
         self._placeholder_class_cache = {}
 
         # Validate configuration with Pydantic
@@ -128,26 +150,32 @@ class PipelineSerializer:
         # Note: Connection validation is done during graph construction
         # cuvis-ai-schemas PipelineConfig doesn't have validate_connections_reference_nodes()
 
+        if self.known_plugins is not None:
+            unknown = [p for p in pipeline_config.plugins or [] if p not in self.known_plugins]
+            if unknown:
+                self.last_load_warnings.append("Plugins not available: " + ", ".join(unknown))
+
         # Clear existing graph
         graph.clear_session()
 
-        # Pre-scan connections so placeholder nodes for unknown classes can
-        # still receive the ports they're connected to — preserves topology
-        # when a pipeline references a plugin node that isn't registered.
+        # Pre-scan connections for the port names each class is wired through.
+        # A placeholder for an unknown class, and a known class whose manifest
+        # declares no ports, get their ports from these hints, so the topology
+        # survives the load.
         name_to_class_path = {n.name: n.class_name for n in pipeline_config.nodes}
-        placeholder_input_ports: dict[str, set[str]] = {}
-        placeholder_output_ports: dict[str, set[str]] = {}
+        input_port_hints: dict[str, set[str]] = {}
+        output_port_hints: dict[str, set[str]] = {}
         for conn in pipeline_config.connections:
             src = self._parse_connection_string(conn.source)
             tgt = self._parse_connection_string(conn.target)
             if src and src[1] == "outputs":
                 cp = name_to_class_path.get(src[0])
                 if cp:
-                    placeholder_output_ports.setdefault(cp, set()).add(src[2])
+                    output_port_hints.setdefault(cp, set()).add(src[2])
             if tgt and tgt[1] == "inputs":
                 cp = name_to_class_path.get(tgt[0])
                 if cp:
-                    placeholder_input_ports.setdefault(cp, set()).add(tgt[2])
+                    input_port_hints.setdefault(cp, set()).add(tgt[2])
 
         # Create nodes
         node_map: dict[str, CuvisNodeAdapter] = {}
@@ -161,8 +189,8 @@ class PipelineSerializer:
             node = self._create_node(
                 node_dict,
                 graph,
-                input_port_hints=placeholder_input_ports.get(node_config.class_name),
-                output_port_hints=placeholder_output_ports.get(node_config.class_name),
+                input_port_hints=input_port_hints.get(node_config.class_name),
+                output_port_hints=output_port_hints.get(node_config.class_name),
             )
             if node:
                 node_map[node.name()] = node
@@ -171,11 +199,15 @@ class PipelineSerializer:
                 col = i % 4
                 node.set_pos(col * 250, row * 150)
 
-        # Create connections
+        # Create connections, then compare what the graph shows with the YAML:
+        # a connect call can succeed and still drop an earlier edge (a second
+        # source on a single-connection input replaces the first).
         for conn_config in pipeline_config.connections:
-            connection = [conn_config.source, conn_config.target]
-            if not self._create_connection(connection, node_map, graph):
-                self._load_failed_connections += 1
+            self._create_connection([conn_config.source, conn_config.target], node_map, graph)
+        self.last_missing_connections = self._missing_connections(
+            pipeline_config.connections, node_map
+        )
+        self._load_failed_connections = len(self.last_missing_connections)
 
         # Auto-layout if more than a few nodes
         if len(node_map) > 2:
@@ -189,9 +221,19 @@ class PipelineSerializer:
         if self._load_failed_nodes:
             failed = ", ".join(self._load_failed_nodes)
             self.last_load_warnings.append("Failed to create nodes: " + failed)
-        if self._load_failed_connections:
+        if self.last_missing_connections:
+            shown = self.last_missing_connections[:5]
+            more = len(self.last_missing_connections) - len(shown)
             self.last_load_warnings.append(
-                f"{self._load_failed_connections} connection(s) could not be created."
+                f"{len(self.last_missing_connections)} connection(s) could not be drawn: "
+                + ", ".join(shown)
+                + (f" and {more} more" if more else "")
+            )
+        if self._load_inferred_port_classes:
+            names = sorted(c.rsplit(".", 1)[-1] for c in self._load_inferred_port_classes)
+            self.last_load_warnings.append(
+                "Ports taken from connections (the plugin manifest declares none): "
+                + ", ".join(names)
             )
 
         logger.info(
@@ -230,6 +272,7 @@ class PipelineSerializer:
 
         # Get the node class from registry
         node_class = self.node_registry.get_node_class(class_path)
+        known_class = node_class is not None
 
         if node_class is None:
             logger.warning(f"Unknown node class: {class_path}")
@@ -266,6 +309,9 @@ class PipelineSerializer:
             if hasattr(node, "cuvis_execution_stages"):
                 node.cuvis_execution_stages = set(execution_stages)
 
+            if known_class and self._add_inferred_ports(node, input_port_hints, output_port_hints):
+                self._load_inferred_port_classes.add(class_path)
+
             return node  # type: ignore
 
         except Exception as e:
@@ -273,6 +319,55 @@ class PipelineSerializer:
             label = node_name or class_path or "Unknown"
             self._load_failed_nodes.append(label)
             return None
+
+    @staticmethod
+    def _add_inferred_ports(
+        node: CuvisNodeAdapter,
+        input_ports: set[str] | None,
+        output_ports: set[str] | None,
+    ) -> bool:
+        """Add the ports connections name but the node's class does not declare.
+
+        A plugin manifest may list a class without port specs; its node would
+        otherwise come up portless and lose every connection.
+
+        Returns:
+            True if any port was added.
+        """
+        added = False
+        for name in sorted(set(input_ports or ()) - set(node.inputs())):
+            spec = _inferred_port_spec(is_input=True)
+            node._cuvis_input_specs[name] = spec
+            create_input_port(node, name, spec)
+            added = True
+        for name in sorted(set(output_ports or ()) - set(node.outputs())):
+            spec = _inferred_port_spec(is_input=False)
+            node._cuvis_output_specs[name] = spec
+            create_output_port(node, name, spec)
+            added = True
+        if added:
+            node.view.draw_node()
+        return added
+
+    def _missing_connections(
+        self,
+        connections: list[ConnectionConfig],
+        node_map: dict[str, CuvisNodeAdapter],
+    ) -> list[str]:
+        """Return the YAML connections the graph does not show, as ``source -> target``."""
+        drawn = {
+            (node.name(), port.name(), other.node().name(), other.name())
+            for node in node_map.values()
+            for port in node.output_ports()
+            for other in port.connected_ports()
+        }
+        missing = []
+        for conn in connections:
+            src = self._parse_connection_string(conn.source)
+            tgt = self._parse_connection_string(conn.target)
+            if not src or not tgt or (src[0], src[2], tgt[0], tgt[2]) not in drawn:
+                missing.append(f"{conn.source} -> {conn.target}")
+        return missing
 
     def _create_placeholder_class(
         self,
@@ -316,21 +411,11 @@ class PipelineSerializer:
                 self.set_name(class_name)
                 self.set_color(200, 50, 50)  # Red for unknown
                 for name in sorted(in_ports):
-                    spec = PortSpec(
-                        dtype="any",
-                        shape=(),
-                        description="(inferred from pipeline connections)",
-                        optional=True,
-                    )
+                    spec = _inferred_port_spec(is_input=True)
                     self._cuvis_input_specs[name] = spec
                     create_input_port(self, name, spec)
                 for name in sorted(out_ports):
-                    spec = PortSpec(
-                        dtype="any",
-                        shape=(),
-                        description="(inferred from pipeline connections)",
-                        optional=False,
-                    )
+                    spec = _inferred_port_spec(is_input=False)
                     self._cuvis_output_specs[name] = spec
                     create_output_port(self, name, spec)
 
