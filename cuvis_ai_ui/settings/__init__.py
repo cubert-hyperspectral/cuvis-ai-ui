@@ -8,8 +8,11 @@ from cuvis_ai_ui.settings.connection import (
 )
 from cuvis_ai_ui.settings.plugins import (
     build_manifest,
+    collect_plugin_entries,
+    get_catalog_dir,
     get_default_plugin_entries,
     get_plugin_store_path,
+    get_user_plugins_dir,
     load_plugin_entries,
     load_plugin_entries_from_directory,
     merge_plugin_entries,
@@ -26,8 +29,11 @@ __all__ = [
     "save_connection_settings",
     # Plugins
     "build_manifest",
+    "collect_plugin_entries",
+    "get_catalog_dir",
     "get_default_plugin_entries",
     "get_plugin_store_path",
+    "get_user_plugins_dir",
     "load_plugin_entries",
     "load_plugin_entries_from_directory",
     "merge_plugin_entries",

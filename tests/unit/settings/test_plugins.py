@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from cuvis_ai_ui.settings.plugins import (
+    BUNDLED_SOURCE,
     PLUGIN_STORE_VERSION,
     _coerce_capabilities,
     _dedupe_entries,
@@ -14,6 +15,7 @@ from cuvis_ai_ui.settings.plugins import (
     _normalize_entry,
     _resolve_local_path,
     build_manifest,
+    collect_plugin_entries,
     load_plugin_entries,
     load_plugin_entries_from_directory,
     merge_plugin_entries,
@@ -28,11 +30,23 @@ from cuvis_ai_ui.settings.plugins import (
 
 @pytest.fixture(autouse=True)
 def _patch_store_path(tmp_path, monkeypatch):
-    """Redirect the plugin store to a temp directory for every test."""
+    """Redirect the plugin store and the app's plugins dir to temp paths.
+
+    The bundled catalog is stubbed to empty so each test states the defaults it
+    needs; ``tests/unit/test_bundled_catalog.py`` covers the real catalog.
+    """
     store_file = tmp_path / "plugins.json"
     monkeypatch.setattr(
         "cuvis_ai_ui.settings.plugins.get_plugin_store_path",
         lambda: store_file,
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_user_plugins_dir",
+        lambda: tmp_path / "app_plugins",
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_default_plugin_entries",
+        lambda: [],
     )
     return store_file
 
@@ -883,3 +897,129 @@ class TestLoadPluginEntriesFromDirectory:
         origins = {e["name"]: e["origin"] for e in entries}
         assert origins["px"] == str(tmp_path / "x.yaml")
         assert origins["py"] == str(tmp_path / "y.yaml")
+
+
+# ── bundled catalog entries in the store ─────────────────────────────
+
+
+def _bundled(name, tag="v2", enabled=True):
+    return _make_entry(
+        name=name,
+        enabled=enabled,
+        source=BUNDLED_SOURCE,
+        config={"repo": "https://example.com/x.git", "tag": tag},
+        origin=f"/catalog/{name}.yaml",
+    )
+
+
+@pytest.fixture
+def stub_defaults(monkeypatch):
+    """Replace the bundled catalog with the given entries."""
+
+    def _set(*entries):
+        monkeypatch.setattr(
+            "cuvis_ai_ui.settings.plugins.get_default_plugin_entries",
+            lambda: [dict(e) for e in entries],
+        )
+
+    return _set
+
+
+class TestBundledEntriesInStore:
+    def test_new_bundled_plugin_appears_next_to_an_existing_store(self, stub_defaults):
+        stub_defaults(_bundled("a"), _bundled("b"))
+        save_plugin_entries([_bundled("a")])
+        assert [e["name"] for e in load_plugin_entries()] == ["a", "b"]
+
+    def test_stored_enabled_flag_is_kept_and_config_comes_from_the_catalog(self, stub_defaults):
+        stub_defaults(_bundled("sam3", tag="v0.5.3"))
+        save_plugin_entries([_bundled("sam3", tag="v0.1.0", enabled=False)])
+        (sam3,) = load_plugin_entries()
+        assert sam3["enabled"] is False
+        assert sam3["config"]["tag"] == "v0.5.3"
+
+    def test_legacy_catalog_copy_is_refreshed(self, store_file, stub_defaults):
+        # A 0.3/0.4 store holds the whole builtin manifest copied from
+        # cuvis_ai_catalog.yaml; the bundled config replaces it.
+        stub_defaults(_bundled("cuvis_ai_builtin", tag="v0.22.6"))
+        legacy = _make_entry(
+            name="cuvis_ai_builtin",
+            source="manifest",
+            config={"repo": "https://example.com/x.git", "tag": "v0.9.0"},
+            origin="C:/old/install/cuvis_ai_catalog.yaml",
+        )
+        store_file.write_text(json.dumps({"version": 2, "plugins": [legacy]}), encoding="utf-8")
+        (builtin,) = load_plugin_entries()
+        assert builtin["config"]["tag"] == "v0.22.6"
+        assert builtin["source"] == BUNDLED_SOURCE
+
+    def test_user_manifest_with_a_bundled_name_wins(self, stub_defaults):
+        stub_defaults(_bundled("sam3", tag="v0.5.3"))
+        mine = _make_entry(
+            name="sam3", source="manifest", config={"path": "/dev/sam3"}, origin="/x/sam3.yaml"
+        )
+        save_plugin_entries([mine])
+        (sam3,) = load_plugin_entries()
+        assert sam3["config"] == {"path": "/dev/sam3"}
+
+    def test_bundled_plugin_dropped_upstream_is_not_kept(self, stub_defaults):
+        stub_defaults(_bundled("kept"))
+        save_plugin_entries([_bundled("kept"), _bundled("gone")])
+        assert [e["name"] for e in load_plugin_entries()] == ["kept"]
+
+    def test_save_stores_bundled_entries_without_their_config(self, store_file):
+        save_plugin_entries([_bundled("sam3", enabled=False), _make_entry(name="mine")])
+        stored = json.loads(store_file.read_text(encoding="utf-8"))["plugins"]
+        assert stored[0] == {
+            "name": "sam3",
+            "enabled": False,
+            "source": BUNDLED_SOURCE,
+            "config": {},
+            "origin": None,
+        }
+        assert stored[1]["name"] == "mine"
+
+
+# ── collect_plugin_entries ───────────────────────────────────────────
+
+
+def _write_manifest(directory, name, tag="v1"):
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.yaml"
+    path.write_text(
+        f"name: {name}\nrepo: https://example.com/{name}.git\ntag: {tag}\n"
+        "capabilities:\n  - class_name: pkg.node.Node\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class TestCollectPluginEntries:
+    def test_later_directories_win_by_name(self, tmp_path, stub_defaults):
+        stub_defaults(_bundled("x", tag="bundled"))
+        _write_manifest(tmp_path / "one", "x", tag="one")
+        _write_manifest(tmp_path / "one", "y", tag="one")
+        _write_manifest(tmp_path / "two", "y", tag="two")
+        entries = collect_plugin_entries([tmp_path / "one", tmp_path / "two"])
+        assert [(e["name"], e["config"]["tag"]) for e in entries] == [("x", "one"), ("y", "two")]
+
+    def test_app_plugins_dir_comes_before_extra_dirs(self, tmp_path):
+        _write_manifest(tmp_path / "app_plugins", "z", tag="app")
+        _write_manifest(tmp_path / "cli", "z", tag="cli")
+        assert collect_plugin_entries()[0]["config"]["tag"] == "app"
+        assert collect_plugin_entries([tmp_path / "cli"])[0]["config"]["tag"] == "cli"
+
+    def test_missing_directories_are_skipped(self, tmp_path):
+        assert collect_plugin_entries([tmp_path / "nope"]) == []
+
+    def test_disabled_plugin_stays_disabled_when_a_directory_supplies_it(self, tmp_path):
+        save_plugin_entries([_make_entry(name="y", enabled=False, config={"path": "/y"})])
+        _write_manifest(tmp_path / "dir", "y")
+        (y,) = collect_plugin_entries([tmp_path / "dir"])
+        assert y["enabled"] is False
+        assert y["config"]["tag"] == "v1"
+
+    def test_directory_entries_are_not_written_to_the_store(self, tmp_path, store_file):
+        _write_manifest(tmp_path / "dir", "y")
+        collect_plugin_entries([tmp_path / "dir"])
+        assert not store_file.exists()

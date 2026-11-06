@@ -1,21 +1,70 @@
-"""Persistent plugin settings for cuvis-ai visualizer."""
+"""Persistent plugin settings for cuvis-ai visualizer.
+
+The plugin set the UI registers with the server comes from several sources,
+merged by plugin name with later sources winning:
+
+1. the bundled catalog (``cuvis_ai_ui/catalog/``, every manifest cuvis-ai ships),
+2. ``plugins.json`` (plugins added in the Plugin Manager, and enabled flags),
+3. the app's own ``plugins/`` folder in the config directory,
+4. extra folders: ``--plugins-dir`` and a pipelines folder's ``plugins/``.
+
+Bundled entries are stored in ``plugins.json`` by name and enabled flag only,
+so a newer UI version refreshes their config instead of keeping a stale copy.
+"""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import yaml
 from loguru import logger
 
 from cuvis_ai_ui.settings.common import app_config_dir
 
 PLUGIN_STORE_VERSION = 2
 
+BUNDLED_SOURCE = "bundled"
+"""``source`` of an entry that comes from the bundled catalog."""
+
+# The single-file catalog of UI 0.3/0.4; stores written then copied it whole.
+_LEGACY_CATALOG_FILE = "cuvis_ai_catalog.yaml"
+
+
+def _safe_load(stream: Any) -> Any:
+    """``yaml.safe_load``, through PyYAML's C loader when it is built in.
+
+    The bundled manifests carry inline SVG icons for every node; the C loader
+    reads them several times faster than the pure-Python one.
+    """
+    if hasattr(yaml, "CSafeLoader"):
+        return yaml.load(stream, Loader=yaml.CSafeLoader)
+    return yaml.safe_load(stream)
+
 
 def get_plugin_store_path() -> Path:
     """Return the path for the plugin persistence file."""
     return app_config_dir() / "plugins.json"
+
+
+def get_catalog_dir() -> Path:
+    """Return the directory of the bundled plugin manifests (package data)."""
+    return Path(__file__).resolve().parent.parent / "catalog"
+
+
+def get_user_plugins_dir() -> Path:
+    """Return the app's own plugins folder; every manifest in it loads at startup."""
+    return app_config_dir() / "plugins"
+
+
+def _is_bundled(entry: dict[str, Any]) -> bool:
+    """Return True for an entry from the bundled catalog, old single-file one included."""
+    if entry.get("source") == BUNDLED_SOURCE:
+        return True
+    origin = entry.get("origin")
+    return isinstance(origin, str) and Path(origin).name == _LEGACY_CATALOG_FILE
 
 
 def _resolve_local_path(config: dict[str, Any], manifest_dir: Path) -> dict[str, Any]:
@@ -91,10 +140,8 @@ def _load_manifest_entries(manifest_path: Path) -> list[dict[str, Any]]:
         the file does not parse to a dict with a string ``name``.
     """
     try:
-        import yaml
-
         with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = yaml.safe_load(f) or {}
+            manifest = _safe_load(f) or {}
     except Exception as exc:
         logger.warning(f"Failed to read manifest {manifest_path}: {exc}")
         return []
@@ -119,11 +166,12 @@ def _load_manifest_entries(manifest_path: Path) -> list[dict[str, Any]]:
 
 
 def get_default_plugin_entries() -> list[dict[str, Any]]:
-    """Load the default plugins from the built-in catalog manifest."""
-    manifest_path = Path(__file__).resolve().parent.parent.parent / "cuvis_ai_catalog.yaml"
-    if not manifest_path.exists():
+    """Load the bundled catalog: one entry per manifest file, marked as bundled."""
+    catalog_dir = get_catalog_dir()
+    if not catalog_dir.is_dir():
         return []
-    return _load_manifest_entries(manifest_path)
+    entries = load_plugin_entries_from_directory(catalog_dir)
+    return [{**entry, "source": BUNDLED_SOURCE} for entry in entries]
 
 
 def load_plugin_entries_from_directory(directory: str | Path) -> list[dict[str, Any]]:
@@ -220,38 +268,88 @@ def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def load_plugin_entries() -> list[dict[str, Any]]:
-    """Load persisted plugin entries, falling back to defaults."""
+def _read_store() -> list[dict[str, Any]] | None:
+    """Return the entries in ``plugins.json``, or None when it is missing or unreadable."""
     path = get_plugin_store_path()
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as exc:
-            logger.warning(f"Failed to read plugin settings: {exc}")
-            return get_default_plugin_entries()
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as exc:
+        logger.warning(f"Failed to read plugin settings: {exc}")
+        return None
 
-        if isinstance(data, dict):
-            plugins = data.get("plugins", [])
-        elif isinstance(data, list):
-            plugins = data
-        else:
-            plugins = []
+    if isinstance(data, dict):
+        plugins = data.get("plugins", [])
+    elif isinstance(data, list):
+        plugins = data
+    else:
+        return None
+    if not isinstance(plugins, list):
+        return None
 
-        if isinstance(plugins, list):
-            entries = [_normalize_entry(p) for p in plugins]
-            normalized = [_migrate_entry(e) for e in entries if e is not None]
-            return _dedupe_entries(normalized)
+    entries = [_normalize_entry(p) for p in plugins]
+    return _dedupe_entries([_migrate_entry(e) for e in entries if e is not None])
 
-    return get_default_plugin_entries()
+
+def load_plugin_entries() -> list[dict[str, Any]]:
+    """Load the bundled catalog merged with the persisted store.
+
+    Every bundled plugin is present with its current bundled config; the store
+    contributes its enabled flag, plus every plugin the user added. A user entry
+    with a bundled plugin's name replaces the bundled one. Bundled names the
+    catalog no longer ships are dropped.
+    """
+    defaults = get_default_plugin_entries()
+    stored = _read_store()
+    if stored is None:
+        return defaults
+
+    bundled_enabled = {e["name"]: e["enabled"] for e in stored if _is_bundled(e)}
+    merged = [{**d, "enabled": bundled_enabled.get(d["name"], d["enabled"])} for d in defaults]
+    merged.extend(e for e in stored if not _is_bundled(e))
+    return _dedupe_entries(merged)
+
+
+def collect_plugin_entries(extra_dirs: Iterable[str | Path] = ()) -> list[dict[str, Any]]:
+    """Return every plugin the UI registers with the server.
+
+    Sources in order, later wins by name: :func:`load_plugin_entries` (bundled
+    catalog and ``plugins.json``), the app's plugins folder
+    (:func:`get_user_plugins_dir`), then each of ``extra_dirs``. A plugin's
+    enabled flag from the store is kept whichever folder supplies its config.
+    Nothing read from the folders is written to the store.
+    """
+    entries = load_plugin_entries()
+    enabled = {e["name"]: e["enabled"] for e in entries}
+    for directory in [get_user_plugins_dir(), *(Path(d) for d in extra_dirs)]:
+        if not directory.is_dir():
+            continue
+        for entry in load_plugin_entries_from_directory(directory):
+            entries.append({**entry, "enabled": enabled.get(entry["name"], entry["enabled"])})
+    return _dedupe_entries(entries)
+
+
+def _storable(entry: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a bundled entry to its name and enabled flag for the store."""
+    if not _is_bundled(entry):
+        return entry
+    return {
+        "name": entry["name"],
+        "enabled": entry["enabled"],
+        "source": BUNDLED_SOURCE,
+        "config": {},
+        "origin": None,
+    }
 
 
 def save_plugin_entries(entries: list[dict[str, Any]]) -> None:
-    """Persist plugin entries to disk."""
+    """Persist plugin entries to disk (bundled ones by name and enabled flag)."""
     normalized = [_normalize_entry(e) for e in entries]
     payload = {
         "version": PLUGIN_STORE_VERSION,
-        "plugins": [e for e in normalized if e is not None],
+        "plugins": [_storable(e) for e in normalized if e is not None],
     }
     path = get_plugin_store_path()
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -87,7 +87,7 @@ cuvis-ui-test = "cuvis_ai_ui.main:test_connection"
 
 
 [tool.setuptools.package-data]
-cuvis_ai_ui = ["resources/icons/*"]
+cuvis_ai_ui = ["resources/icons/*", "catalog/*.yaml", "catalog/README.md"]
 
 [tool.setuptools.packages.find]
 where = ["."]
