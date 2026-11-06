@@ -29,16 +29,19 @@ def test_catalog_lives_inside_the_package():
     assert get_catalog_dir().parent == Path(cuvis_ai_ui.__file__).parent
 
 
-def test_catalog_ships_every_cuvis_ai_plugin_manifest():
+def test_catalog_ships_the_released_cuvis_ai_plugins():
     names = [yaml.safe_load(path.read_text(encoding="utf-8"))["name"] for path in CATALOG_FILES]
-    assert len(names) >= 21
+    assert len(names) >= 18
     assert len(names) == len(set(names)), "two manifests share a plugin name"
     assert "cuvis_ai_builtin" in names
 
 
 @pytest.mark.parametrize("path", CATALOG_FILES, ids=lambda p: p.stem)
-def test_each_manifest_validates(path):
-    parse_plugin_manifest(yaml.safe_load(path.read_text(encoding="utf-8")))
+def test_each_manifest_validates_and_pins_a_release(path):
+    # A bundled local path would make a server install whatever sits there.
+    manifest = parse_plugin_manifest(yaml.safe_load(path.read_text(encoding="utf-8")))
+    assert getattr(manifest, "repo", None), f"{path.name} has no git repo source"
+    assert getattr(manifest, "tag", None), f"{path.name} pins no tag"
 
 
 def test_default_entries_are_bundled_one_per_file():
@@ -56,9 +59,7 @@ def test_builtin_manifest_carries_port_specs():
     assert len(with_ports) >= 150
 
 
-def test_built_manifests_validate_after_path_resolution():
-    # What the UI sends over LoadPlugin: relative local paths made absolute.
+def test_built_manifests_validate():
+    # What the UI sends over LoadPlugin.
     for manifest in build_manifest(get_default_plugin_entries(), enabled_only=False):
         parse_plugin_manifest(manifest)
-        if "path" in manifest:
-            assert Path(manifest["path"]).is_absolute()
