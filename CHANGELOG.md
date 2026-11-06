@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0 - 2026-11-06
+
+- The node palette lists the nodes of every released cuvis-ai plugin: the bundled catalog `cuvis_ai_ui/catalog/` holds the 18 git-pinned plugin manifests of cuvis-ai v0.22.6 (247 nodes), replaces `cuvis_ai_catalog.yaml`, and ships in the wheel and the installer. `scripts/regenerate_catalog.py --tag <tag>` mirrors a newer release.
+- Bundled plugins always come from the installed catalog and `plugins.json` keeps only their enabled flag, so a store written by an older version no longer hides new plugins.
+- `cuvis-ui PATH` opens a pipeline file or a folder of pipelines. A folder fills the new Pipelines dock (also File > Open Folder) and registers the manifests in its `plugins/` subfolder; `--plugins-dir` adds manifest folders, and the app's own `plugins/` folder is read at every start.
+- `--start-server` starts the local server for the run. The UI looks for the per-user server-venv, then a sibling cuvis-ai-core `.venv`, then its own interpreter, and writes the server's output to `server.log` instead of an unread pipe that could stall the server.
+- Pipelines load with every edge: fan-in inputs keep all their connections, nodes whose manifest lists no ports take them from the connections, and the load warnings name each connection that could not be drawn and each `plugins:` entry the server does not know.
+- A change of the plugin set (folder, Plugin Manager, refresh, reconnect) starts a fresh server session and replaces node types whose ports changed; the status bar names plugins that failed to load.
+- Opening another pipeline asks about unsaved changes on every route, graph edits mark the pipeline unsaved, and a cancelled close keeps the server connection.
+- Requires `cuvis-ai-schemas[proto]>=0.14.4`. The installer builds against cuvis-ai-core v0.20.2 (`CUVIS_AI_CORE_ROOT` points `build.bat` at another checkout), and its bootstrap smoke test no longer imports the Cuvis SDK.
+
 ## 0.4.0 - 2026-11-05
 
 - Regenerated `cuvis_ai_catalog.yaml` from cuvis-ai v0.21.0 (165 nodes, was v0.9.0): the palette gains every node added since, and `Standardize` replaces `ZScoreNormalizerGlobal`, `ZScoreNormalizer` and `ChannelNormalizeNode` in the catalog; cuvis-ai 0.21.0 also removed `MeanCenter`, `UnitVarianceScaling` and `SNVCorrection`, which this bundled manifest never exposed.

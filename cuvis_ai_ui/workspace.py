@@ -78,7 +78,10 @@ def register_plugins(
 
     The server only adds plugins to a session, so a changed plugin set needs
     ``fresh_session=True``: the session is closed and a new one created before
-    the full set is registered again.
+    the full set is registered again. Registration is metadata only; the
+    server clones, installs and imports a plugin when a pipeline that uses it
+    is loaded for a run, so anything that runs pipelines must treat folder
+    manifests as untrusted.
     """
     if fresh_session:
         client.close_session()
