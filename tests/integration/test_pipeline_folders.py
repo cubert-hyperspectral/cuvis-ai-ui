@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
+from cuvis_ai_ui.grpc.client import CuvisAIClient
 from cuvis_ai_ui.main_window import MainWindow
 
 PIPELINE = """metadata:
@@ -150,12 +151,21 @@ def test_unknown_plugins_warn_once_known_plugins_are_set(window, folder):
 
 
 def test_cancelled_close_keeps_the_connection(window, folder, answer):
-    client = Mock()
+    client = Mock(spec=CuvisAIClient)
     window._client = client
     window.open_folder(folder)
     _edit(window)
     answer(QMessageBox.StandardButton.Cancel)
 
     assert not window.close()
-    client.close.assert_not_called()
+    client.disconnect.assert_not_called()
+    window._client = None
+
+
+def test_close_disconnects_the_client(window):
+    client = Mock(spec=CuvisAIClient)
+    window._client = client
+
+    assert window.close()
+    client.disconnect.assert_called_once()
     window._client = None

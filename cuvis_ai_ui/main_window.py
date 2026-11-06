@@ -737,7 +737,7 @@ class MainWindow(QMainWindow):
         # Close old client
         if self._client is not None:
             try:
-                self._client.close()
+                self._client.disconnect()
             except Exception:
                 pass
 
@@ -849,7 +849,7 @@ class MainWindow(QMainWindow):
         # Close gRPC client
         if self._client is not None:
             try:
-                self._client.close()
+                self._client.disconnect()
             except Exception:
                 pass
 
