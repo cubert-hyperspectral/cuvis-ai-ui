@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import importlib.util
 import os
 import subprocess
 import sys
@@ -12,45 +13,63 @@ from pathlib import Path
 import grpc
 from loguru import logger
 
+SERVER_MODULE = "cuvis_ai_core.grpc.production_server"
 
-def _find_server_executable() -> list[str]:
-    """Return the command to start the gRPC server.
 
-    In a PyInstaller frozen build the server executable lives next to the UI
-    executable at ``<app>/server/cuvis-server.exe``.  During development we
-    look for the cuvis-ai-core project's own venv Python, since cuvis_ai_core
-    is typically not installed in the UI venv.
+def user_data_dir() -> Path:
+    """Per-user folder the installer shares with the UI (server-venv, server.log)."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "Cubert GmbH" / "Cuvis.AI UI"
+    return Path.home() / ".config" / "cuvis-ai-ui"
+
+
+def _venv_python(venv: Path) -> Path | None:
+    for python in (venv / "Scripts" / "python.exe", venv / "bin" / "python"):
+        if python.exists():
+            return python
+    return None
+
+
+def _sibling_core_venv() -> Path:
+    """The ``.venv`` of a cuvis-ai-core checkout next to this one.
+
+    ``<repos>/cuvis-ai-ui/<checkout>/cuvis_ai_ui/server/manager.py`` maps to
+    ``<repos>/cuvis-ai-core/cuvis-ai-core/.venv``.
     """
+    repos_dir = Path(__file__).resolve().parents[4]
+    return repos_dir / "cuvis-ai-core" / "cuvis-ai-core" / ".venv"
+
+
+def _find_server_executable() -> list[str] | None:
+    """Return the command that starts the gRPC server, or None if there is none.
+
+    Order: the per-user server-venv the installer creates, then (outside a
+    frozen build) a sibling cuvis-ai-core checkout's ``.venv``, then this
+    interpreter when it can import ``cuvis_ai_core``.
+    """
+    candidates = [_venv_python(user_data_dir() / "server-venv")]
+    if not getattr(sys, "frozen", False):
+        candidates.append(_venv_python(_sibling_core_venv()))
+        if importlib.util.find_spec("cuvis_ai_core") is not None:
+            candidates.append(Path(sys.executable))
+    for python in candidates:
+        if python is not None:
+            logger.debug(f"Server interpreter: {python}")
+            return [str(python), "-m", SERVER_MODULE]
+    return None
+
+
+def _server_env(port: int) -> dict[str, str]:
+    """Environment for the server; a frozen build puts its bundled tools on PATH."""
+    env = {**os.environ, "GRPC_PORT": str(port), "LOG_FORMAT": "text"}
     if getattr(sys, "frozen", False):
-        # Frozen build — look for the server exe next to this exe
         app_dir = Path(sys.executable).parent
-        server_exe = app_dir / "server" / "cuvis-server.exe"
-        if server_exe.exists():
-            return [str(server_exe)]
-        # Fallback: maybe the server is on PATH
-        return ["cuvis-server"]
-
-    # Development mode — try to find cuvis-ai-core's own venv
-    # __file__ is <ui-project>/cuvis_ai_ui/server/manager.py
-    # ui_project is <repos>/cuvis-ai-ui/cuvis-ai-ui
-    # core is at   <repos>/cuvis-ai-core/cuvis-ai-core
-    ui_project = Path(__file__).resolve().parent.parent.parent
-    repos_dir = ui_project.parent.parent  # up to <repos>
-    core_candidates = [
-        repos_dir / "cuvis-ai-core" / "cuvis-ai-core",
-    ]
-    for core_root in core_candidates:
-        core_root = core_root.resolve()
-        core_python = core_root / ".venv" / "Scripts" / "python.exe"
-        if not core_python.exists():
-            # Linux/macOS
-            core_python = core_root / ".venv" / "bin" / "python"
-        if core_python.exists():
-            logger.debug(f"Found cuvis-ai-core venv at {core_python}")
-            return [str(core_python), "-m", "cuvis_ai_core.grpc.production_server"]
-
-    # Fallback: try current Python (works if cuvis_ai_core is installed in UI venv)
-    return [sys.executable, "-m", "cuvis_ai_core.grpc.production_server"]
+        tools = [app_dir / name / "bin" for name in ("ffmpeg", "graphviz")]
+        prefix = [str(t) for t in tools if t.is_dir()]
+        if prefix:
+            env["PATH"] = os.pathsep.join([*prefix, env.get("PATH", "")])
+    return env
 
 
 class ServerManager:
@@ -60,6 +79,8 @@ class ServerManager:
         self._port = port
         self._process: subprocess.Popen | None = None
         self._last_error: str = ""
+        self._log_path = user_data_dir() / "server.log"
+        self._log_offset = 0
         # Register cleanup so the server is stopped even on unclean exit.
         # Use _atexit_stop (no logging) because output streams may already
         # be closed when atexit callbacks run (e.g. pytest-cov closes stderr).
@@ -78,6 +99,11 @@ class ServerManager:
         """Last error message from the server process."""
         return self._last_error
 
+    @property
+    def log_path(self) -> Path:
+        """File the server's output is appended to."""
+        return self._log_path
+
     def is_running(self) -> bool:
         """Return True if the server subprocess is alive."""
         if self._process is None:
@@ -87,64 +113,56 @@ class ServerManager:
     def start(self) -> None:
         """Spawn the server subprocess (no-op if already running).
 
-        Returns silently if the server executable cannot be found — the UI
-        can still operate without a local server.
+        The server's output is appended to :attr:`log_path`. Returns with
+        :attr:`last_error` set when no server runtime is found; the UI still
+        works without a local server.
         """
         if self.is_running():
             logger.info(f"Server already running (pid={self._process.pid})")
             return
 
         cmd = _find_server_executable()
-        env = {**os.environ, "GRPC_PORT": str(self._port), "LOG_FORMAT": "text"}
+        if cmd is None:
+            self._last_error = (
+                "No cuvis-ai-core server found. Run 'Setup local server' from the "
+                "Cuvis.AI UI start menu folder, or create the .venv of a cuvis-ai-core "
+                "checkout next to this one."
+            )
+            logger.warning(self._last_error)
+            return
 
         logger.info(f"Starting local gRPC server: {' '.join(cmd)} (port {self._port})")
-        try:
-            self._process = subprocess.Popen(
-                cmd,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-            )
-        except FileNotFoundError:
-            logger.warning(
-                f"Server executable not found: {' '.join(cmd)}. "
-                "Make sure cuvis-ai-core is installed or its venv exists."
-            )
-            self._process = None
-            return
-        logger.info(f"Server started (pid={self._process.pid})")
-
-    def get_output(self) -> str:
-        """Read any available stdout/stderr from the server process."""
-        if self._process is None or self._process.stdout is None:
-            return ""
-        try:
-            # Non-blocking read of whatever is available
-            import msvcrt
-            import ctypes
-
-            handle = msvcrt.get_osfhandle(self._process.stdout.fileno())
-            avail = ctypes.c_ulong(0)
-            ctypes.windll.kernel32.PeekNamedPipe(
-                handle,
-                None,
-                0,
-                None,
-                ctypes.byref(avail),
-                None,
-            )
-            if avail.value > 0:
-                return self._process.stdout.read(avail.value).decode("utf-8", errors="replace")
-        except Exception:
-            pass
-        # If process has exited, read remaining output
-        if self._process.poll() is not None:
+        self._log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._log_path, "ab") as log:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            log.write(f"\n--- server start {stamp}: {' '.join(cmd)} ---\n".encode())
+            log.flush()
+            self._log_offset = log.tell()
             try:
-                return self._process.stdout.read().decode("utf-8", errors="replace")
-            except Exception:
-                pass
-        return ""
+                self._process = subprocess.Popen(
+                    cmd,
+                    env=_server_env(self._port),
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                )
+            except OSError as e:
+                self._last_error = f"Could not start the server ({' '.join(cmd)}): {e}"
+                logger.warning(self._last_error)
+                self._process = None
+                return
+        logger.info(f"Server started (pid={self._process.pid}), log: {self._log_path}")
+
+    def log_tail(self, max_lines: int = 40) -> str:
+        """Return the last lines the current server run wrote to its log."""
+        try:
+            with open(self._log_path, "rb") as log:
+                log.seek(self._log_offset)
+                text = log.read().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+        return "\n".join(text.splitlines()[-max_lines:])
 
     def wait_ready(self, timeout: float = 30.0, poll_interval: float = 0.5) -> bool:
         """Block until the server responds to a gRPC health check.
@@ -160,9 +178,10 @@ class ServerManager:
 
         while time.monotonic() < deadline:
             if not self.is_running():
-                output = self.get_output()
-                logger.warning(f"Server process exited before becoming ready. Output:\n{output}")
-                self._last_error = output
+                self._last_error = self.log_tail()
+                logger.warning(
+                    f"Server process exited before becoming ready. Output:\n{self._last_error}"
+                )
                 return False
             try:
                 channel = grpc.insecure_channel(target)
@@ -176,7 +195,9 @@ class ServerManager:
                 time.sleep(poll_interval)
 
         logger.warning(f"Server did not become ready within {timeout:.0f}s")
-        self._last_error = f"Timeout after {timeout}s waiting for server at {target}"
+        self._last_error = (
+            f"Timeout after {timeout}s waiting for server at {target}. Server log: {self._log_path}"
+        )
         return False
 
     def _atexit_stop(self) -> None:
