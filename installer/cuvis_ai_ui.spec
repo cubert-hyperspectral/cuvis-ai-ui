@@ -50,11 +50,10 @@ datas = [
 # PyInstaller cannot detect these because they are loaded dynamically or via
 # string-based imports.
 hiddenimports = [
-    # cuvis-ai-schemas submodules (local editable dependency)
+    # cuvis-ai-schemas submodules
     "cuvis_ai_schemas",
     "cuvis_ai_schemas.enums",
     "cuvis_ai_schemas.plugin",
-    "cuvis_ai_schemas.discovery",
     "cuvis_ai_schemas.extensions",
     "cuvis_ai_schemas.extensions.ui",
     "cuvis_ai_schemas.grpc",
