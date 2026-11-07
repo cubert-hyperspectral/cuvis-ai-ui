@@ -35,6 +35,8 @@ BUNDLED_SOURCE = "bundled"
 # It only ever held a plugin of one of these names.
 _LEGACY_CATALOG_FILE = "cuvis_ai_catalog.yaml"
 _LEGACY_CATALOG_PLUGINS = frozenset({"cuvis_ai_builtin", "cuvis_ai_catalog"})
+# Bundled plugins stored under an earlier name; their enabled flag carries over.
+_BUNDLED_RENAMES = {"cuvis_ai_catalog": "cuvis_ai_builtin"}
 
 
 def _safe_load(stream: Any) -> Any:
@@ -323,7 +325,16 @@ def load_plugin_entries() -> list[dict[str, Any]]:
     if stored is None:
         return defaults
 
-    bundled_enabled = {e["name"]: e["enabled"] for e in stored if _is_bundled(e)}
+    stored_bundled = [e for e in stored if _is_bundled(e)]
+    # A flag stored under an old name applies unless the current name has one.
+    bundled_enabled = {
+        _BUNDLED_RENAMES[e["name"]]: e["enabled"]
+        for e in stored_bundled
+        if e["name"] in _BUNDLED_RENAMES
+    }
+    bundled_enabled.update(
+        {e["name"]: e["enabled"] for e in stored_bundled if e["name"] not in _BUNDLED_RENAMES}
+    )
     merged = [{**d, "enabled": bundled_enabled.get(d["name"], d["enabled"])} for d in defaults]
     merged.extend(e for e in stored if not _is_bundled(e))
     return _dedupe_entries(merged)

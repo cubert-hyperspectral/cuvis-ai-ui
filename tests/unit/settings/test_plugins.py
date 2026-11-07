@@ -979,6 +979,37 @@ class TestBundledEntriesInStore:
         assert builtin["config"]["tag"] == "v0.22.6"
         assert builtin["source"] == BUNDLED_SOURCE
 
+    def test_old_catalog_name_keeps_its_disabled_flag(self, store_file, stub_defaults):
+        """Stores from early 2026 name the builtin plugin cuvis_ai_catalog; a
+        disabled flag stored under that name carries over to cuvis_ai_builtin."""
+        stub_defaults(_bundled("cuvis_ai_builtin", tag="v0.22.6"))
+        legacy = _make_entry(
+            name="cuvis_ai_catalog",
+            enabled=False,
+            source="manifest",
+            config={"path": "D:/code-repos/cuvis-ai/cuvis-ai/"},
+            origin="C:/old/install/cuvis_ai_catalog.yaml",
+        )
+        store_file.write_text(json.dumps({"version": 2, "plugins": [legacy]}), encoding="utf-8")
+        (builtin,) = load_plugin_entries()
+        assert builtin["name"] == "cuvis_ai_builtin"
+        assert builtin["enabled"] is False
+
+    def test_current_name_flag_wins_over_the_old_catalog_name(self, store_file, stub_defaults):
+        stub_defaults(_bundled("cuvis_ai_builtin"))
+        old = _make_entry(
+            name="cuvis_ai_catalog",
+            enabled=False,
+            source="manifest",
+            origin="C:/old/cuvis_ai_catalog.yaml",
+        )
+        current = _bundled("cuvis_ai_builtin", enabled=True)
+        store_file.write_text(
+            json.dumps({"version": 2, "plugins": [old, current]}), encoding="utf-8"
+        )
+        (builtin,) = load_plugin_entries()
+        assert builtin["enabled"] is True
+
     def test_user_manifest_with_a_bundled_name_wins(self, stub_defaults):
         stub_defaults(_bundled("sam3", tag="v0.5.3"))
         mine = _make_entry(
