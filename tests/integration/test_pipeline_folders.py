@@ -246,3 +246,25 @@ def test_clicking_the_original_row_after_save_as_opens_it_again(window, folder, 
     window.pipeline_browser.list_widget.setCurrentRow(original_row)
 
     assert window.current_file == original
+
+
+def test_select_all_does_not_mark_the_pipeline_unsaved(window, tmp_path):
+    two_nodes = """metadata:
+  name: pair
+plugins: [p]
+nodes:
+  - name: a
+    class_name: p.Src
+    hparams: {}
+  - name: b
+    class_name: p.Src
+    hparams: {}
+connections: []
+"""
+    (tmp_path / "pair.yaml").write_text(two_nodes, encoding="utf-8")
+    window.open_folder(tmp_path)
+
+    window._select_all()
+
+    assert all(node.selected() for node in window.graph.all_nodes())
+    assert not window.windowTitle().startswith("*")

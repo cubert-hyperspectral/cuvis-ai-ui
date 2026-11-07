@@ -675,7 +675,7 @@ class MainWindow(QMainWindow):
     def _select_all(self) -> None:
         """Select all nodes."""
         for node in self._graph.all_nodes():
-            node.set_selected(True)
+            node.set_property("selected", True, push_undo=False)
 
     def _undo(self) -> None:
         """Undo last action."""
