@@ -49,3 +49,21 @@ def test_test_mode_reads_connection_settings_after_app_identity_is_set(restore_a
     mock_run_test.assert_called_once()
     assert recorded["app_name"] == APP_NAME
     assert recorded["org_name"] == ORG_NAME
+
+
+def test_connection_command_sets_app_identity_first(restore_app_identity):
+    """cuvis-ui-test registers the app's plugin folders, so it needs the app's names too."""
+    QCoreApplication.setApplicationName("")
+    QCoreApplication.setOrganizationName("")
+
+    recorded = {}
+
+    def fake_run_connection_test(*args, **kwargs):
+        recorded["app_name"] = QCoreApplication.applicationName()
+        recorded["org_name"] = QCoreApplication.organizationName()
+
+    with patch.object(main_module, "_run_connection_test", side_effect=fake_run_connection_test):
+        result = CliRunner().invoke(main_module.test_connection, [])
+
+    assert result.exit_code == 0, result.output
+    assert recorded == {"app_name": APP_NAME, "org_name": ORG_NAME}

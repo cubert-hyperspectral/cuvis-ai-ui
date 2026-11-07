@@ -266,6 +266,7 @@ def test_connection(host: str, port: int, plugins_dirs: Sequence[Path]) -> None:
 
     Useful for debugging and CI/CD validation.
     """
+    set_app_identity()
     _run_connection_test(host, port, list(plugins_dirs))
 
 
