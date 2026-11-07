@@ -375,6 +375,59 @@ def test_auto_layout_positions_nodes(pipeline_serializer, mock_graph):
     mock_node2.set_pos.assert_called_once()
 
 
+def _wide_node(name, upstream=None):
+    """A mock node with a 400x200 view, wired to an optional upstream node."""
+    node = Mock(spec=CuvisNodeAdapter)
+    node.name = Mock(return_value=name)
+    node.view = Mock(width=400, height=200)
+    node.set_pos = Mock()
+    if upstream is not None:
+        connected_port = Mock()
+        connected_port.node = Mock(return_value=upstream)
+        in_port = Mock()
+        in_port.connected_ports = Mock(return_value=[connected_port])
+        node.input_ports = Mock(return_value=[in_port])
+    else:
+        node.input_ports = Mock(return_value=[])
+    node.output_ports = Mock(return_value=[])
+    return node
+
+
+def _bbox(node):
+    x, y = node.set_pos.call_args[0]
+    return (x, y, x + node.view.width, y + node.view.height)
+
+
+def _disjoint(a, b):
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    return ax1 <= bx0 or bx1 <= ax0 or ay1 <= by0 or by1 <= ay0
+
+
+def test_auto_layout_spaces_wide_nodes_across_columns(pipeline_serializer, mock_graph):
+    """Nodes with a 400x200 view in consecutive columns must not overlap."""
+    source = _wide_node("source")
+    sink = _wide_node("sink", upstream=source)
+
+    mock_graph.all_nodes.return_value = [source, sink]
+
+    pipeline_serializer._auto_layout(mock_graph)
+
+    assert _disjoint(_bbox(source), _bbox(sink))
+
+
+def test_auto_layout_spaces_wide_nodes_within_a_column(pipeline_serializer, mock_graph):
+    """Two unconnected wide nodes placed in the same column must not overlap."""
+    node_a = _wide_node("a")
+    node_b = _wide_node("b")
+
+    mock_graph.all_nodes.return_value = [node_a, node_b]
+
+    pipeline_serializer._auto_layout(mock_graph)
+
+    assert _disjoint(_bbox(node_a), _bbox(node_b))
+
+
 def test_load_warnings_for_missing_nodes(pipeline_serializer, mock_graph):
     """Test that warnings are generated for missing node classes."""
     config = {

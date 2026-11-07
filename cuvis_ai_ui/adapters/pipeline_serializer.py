@@ -187,7 +187,7 @@ class PipelineSerializer:
         # Create nodes
         node_map: dict[str, CuvisNodeAdapter] = {}
 
-        for i, node_config in enumerate(pipeline_config.nodes):
+        for node_config in pipeline_config.nodes:
             node_dict = {
                 "class_name": node_config.class_name,
                 "name": node_config.name,
@@ -208,10 +208,6 @@ class PipelineSerializer:
             )
             if node:
                 node_map[node.name()] = node
-                # Position nodes in a grid layout initially
-                row = i // 4
-                col = i % 4
-                node.set_pos(col * 250, row * 150)
 
         # Create connections, then compare what the graph shows with the YAML:
         # a connect call can succeed and still drop an earlier edge (a second
@@ -223,8 +219,8 @@ class PipelineSerializer:
         )
         self._load_failed_connections = len(self.last_missing_connections)
 
-        # Auto-layout if more than a few nodes
-        if len(node_map) > 2:
+        # Auto-layout positions every loaded node, spaced by its own size.
+        if node_map:
             self._auto_layout(graph)
 
         if self._load_missing_nodes:
@@ -541,10 +537,32 @@ class PipelineSerializer:
 
         return None
 
+    @staticmethod
+    def _node_size(node: CuvisNodeAdapter) -> tuple[int, int]:
+        """Return (width, height) from the node's view, or a 250x100 fallback.
+
+        A placeholder or freshly created node's view can still report
+        non-numeric or zero sizes before its first paint, so anything that
+        isn't a plain number falls back to the default footprint.
+        """
+        view = getattr(node, "view", None)
+        width = getattr(view, "width", None)
+        height = getattr(view, "height", None)
+        if (
+            isinstance(width, (int, float))
+            and isinstance(height, (int, float))
+            and width
+            and height
+        ):
+            return int(width), int(height)
+        return 250, 100
+
     def _auto_layout(self, graph: NodeGraph) -> None:
         """Apply automatic layout to nodes in the graph.
 
-        Uses a simple left-to-right flow layout based on connections.
+        Uses a left-to-right flow layout based on connections, spacing each
+        node by its own view size so nodes with long port names don't
+        overlap their neighbours.
 
         Args:
             graph: NodeGraphQt graph to layout
@@ -580,18 +598,26 @@ class PipelineSerializer:
             columns.append(ready)
             placed.update(ready)
 
-        # Position nodes
-        x_spacing = 300
-        y_spacing = 150
+        # Position nodes: each column starts where the previous column's
+        # widest node ends, plus a gap; within a column each node starts
+        # where the previous node's bottom ends, plus a gap.
+        column_gap = 80
+        row_gap = 40
         node_dict = {n.name(): n for n in nodes}
 
-        for col_idx, column in enumerate(columns):
-            for row_idx, node_name in enumerate(column):
+        x = 0
+        for column in columns:
+            y = 0
+            widest = 0
+            for node_name in column:
                 node = node_dict.get(node_name)
-                if node:
-                    x = col_idx * x_spacing
-                    y = row_idx * y_spacing
-                    node.set_pos(x, y)
+                if not node:
+                    continue
+                width, height = self._node_size(node)
+                node.set_pos(x, y)
+                y += height + row_gap
+                widest = max(widest, width)
+            x += widest + column_gap
 
     def to_yaml_file(
         self,
