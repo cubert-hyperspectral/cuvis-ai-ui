@@ -311,6 +311,24 @@ def test_opening_a_single_file_pipeline_clears_the_properties_editor(window, fol
     assert not window.windowTitle().startswith("*")
 
 
+def test_save_as_outside_the_open_folder_clears_the_browser_selection(
+    window, folder, tmp_path_factory, monkeypatch
+):
+    window.open_folder(folder)
+    other = tmp_path_factory.mktemp("elsewhere")
+    new_path = other / "elsewhere.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+
+    window.save_pipeline_as()
+
+    assert window.pipeline_browser.list_widget.currentRow() == -1
+
+    original_row = window.pipeline_browser.pipelines.index(folder / "one.yaml")
+    window.pipeline_browser.list_widget.setCurrentRow(original_row)
+
+    assert window.current_file == folder / "one.yaml"
+
+
 def test_new_pipeline_clears_the_properties_editor(window, folder, answer):
     editor = PropertyEditor()
     window.set_properties_widget(editor)
