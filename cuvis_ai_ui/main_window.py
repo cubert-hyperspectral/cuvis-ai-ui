@@ -497,6 +497,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return
 
+        self.node_selected.emit(None)
         self._graph.clear_session()
         self._current_file = None
         self._metadata = {}
@@ -538,6 +539,7 @@ class MainWindow(QMainWindow):
             return False
 
         path = str(path)
+        self.node_selected.emit(None)
         try:
             self._metadata = self._serializer.from_yaml_file(path, self._graph)
         except Exception as e:

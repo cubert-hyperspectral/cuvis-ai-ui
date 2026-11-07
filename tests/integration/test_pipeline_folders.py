@@ -279,3 +279,47 @@ def test_opening_a_pipeline_frames_it(window, folder, qtbot):
     qtbot.waitUntil(lambda: spy.called, timeout=1000)
     assert not any(node.selected() for node in window.graph.all_nodes())
     assert not window.windowTitle().startswith("*")
+
+
+def test_opening_another_pipeline_clears_the_properties_editor(window, folder):
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.node_selected.connect(editor.set_node)
+    window.open_folder(folder)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+    assert editor._current_node is node
+
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    assert editor._current_node is None
+    assert not window.windowTitle().startswith("*")
+
+
+def test_opening_a_single_file_pipeline_clears_the_properties_editor(window, folder):
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.node_selected.connect(editor.set_node)
+    window.open_pipeline(folder / "one.yaml", confirm=False)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+    assert editor._current_node is node
+
+    window.open_pipeline(folder / "two.yaml", confirm=False)
+
+    assert editor._current_node is None
+    assert not window.windowTitle().startswith("*")
+
+
+def test_new_pipeline_clears_the_properties_editor(window, folder, answer):
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.node_selected.connect(editor.set_node)
+    window.open_folder(folder)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+    answer(QMessageBox.StandardButton.Discard)
+
+    window.new_pipeline()
+
+    assert editor._current_node is None
