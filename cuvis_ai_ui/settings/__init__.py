@@ -1,6 +1,6 @@
 """Application settings persistence (connection, plugins)."""
 
-from cuvis_ai_ui.settings.common import app_config_dir
+from cuvis_ai_ui.settings.common import APP_NAME, ORG_NAME, app_config_dir, set_app_identity
 from cuvis_ai_ui.settings.connection import (
     get_default_connection_settings,
     load_connection_settings,
@@ -22,7 +22,10 @@ from cuvis_ai_ui.settings.plugins import (
 )
 
 __all__ = [
+    "APP_NAME",
+    "ORG_NAME",
     "app_config_dir",
+    "set_app_identity",
     # Connection
     "get_default_connection_settings",
     "load_connection_settings",

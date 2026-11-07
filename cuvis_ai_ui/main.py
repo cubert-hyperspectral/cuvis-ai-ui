@@ -18,7 +18,12 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from .grpc.client import CuvisAIClient
 from .main_window import MainWindow
 from .server import ServerManager
-from .settings import collect_plugin_entries, get_plugin_store_path, load_connection_settings
+from .settings import (
+    collect_plugin_entries,
+    get_plugin_store_path,
+    load_connection_settings,
+    set_app_identity,
+)
 from .widgets import NodePalette, PluginManagerDialog, PropertyEditor
 from .workspace import plugin_dirs_for, register_plugins, resolve_launch_target
 
@@ -133,6 +138,7 @@ def main(
     plugins/ subfolder are registered with the server. With --test it runs
     a connection test and exits without opening the GUI.
     """
+    set_app_identity()
     folder, pipeline = resolve_launch_target(path)
     conn = load_connection_settings()
     host = "localhost" if conn["mode"] == "local" else conn["host"]
@@ -144,8 +150,6 @@ def main(
 
     logger.info("Starting cuvis-ai-ui...")
     app = QApplication(sys.argv)
-    app.setApplicationName("Cuvis.AI UI")
-    app.setOrganizationName("Cubert GmbH")
 
     icon_path = Path(__file__).parent / "resources" / "icons" / "logo.png"
     if icon_path.exists():
