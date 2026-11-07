@@ -604,7 +604,10 @@ class MainWindow(QMainWindow):
         # names, which breaks comparisons against some tmp paths.
         folder = Path(path).absolute()
         pipelines = list_pipelines(folder)
-        target = Path(pipeline) if pipeline is not None else (pipelines[0] if pipelines else None)
+        if pipeline is not None:
+            target: Path | None = Path(pipeline).absolute()
+        else:
+            target = pipelines[0] if pipelines else None
         if target is not None and not self._confirm_discard():
             return False
 
@@ -743,12 +746,15 @@ class MainWindow(QMainWindow):
             self._server_manager = None
 
         # Local mode means this machine. Start a server unless one already listens
-        # (started outside the UI, or by an earlier run).
+        # (started outside the UI, or by an earlier run). A manager still here is
+        # this window's own server on this port, alive but not listening yet (a
+        # slow first start): wait for it again instead of starting a second one.
         if settings["mode"] == "local":
             host = "localhost"
             if not is_listening(host, port):
-                self._server_manager = ServerManager(port=port)
-                self._server_manager.start()
+                if self._server_manager is None:
+                    self._server_manager = ServerManager(port=port)
+                    self._server_manager.start()
                 if not self._server_manager.wait_ready(timeout=SERVER_READY_TIMEOUT):
                     detail = self._server_manager.last_error or (
                         "The local gRPC server did not become ready in time."

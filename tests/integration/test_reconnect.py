@@ -113,6 +113,39 @@ def test_reconnect_locally_stops_the_server_this_window_already_owns(
     assert window.server_manager is new_manager
 
 
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
+def test_reconnect_waits_for_the_server_this_window_is_still_starting(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    """A server this window started on the same port that is alive but not
+    listening yet (a slow first start) is waited for again, not replaced by a
+    second server process on that port."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    starting = MagicMock()
+    starting.port = 50051
+    starting.is_running.return_value = True
+    starting.wait_ready.return_value = True
+    window.set_server_manager(starting)
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings(port=50051)
+
+    window._show_connection_dialog()
+
+    mock_manager_cls.assert_not_called()
+    starting.stop.assert_not_called()
+    starting.start.assert_not_called()
+    starting.wait_ready.assert_called_once()
+    assert window.server_manager is starting
+
+
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
 @patch("cuvis_ai_ui.main_window.ServerManager")
 @patch("cuvis_ai_ui.main_window.ConnectionDialog")

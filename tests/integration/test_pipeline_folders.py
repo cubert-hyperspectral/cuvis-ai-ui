@@ -1,5 +1,6 @@
 """Pipeline folders in the main window: browsing, plugin hook-up, unsaved changes."""
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -364,3 +365,126 @@ def test_new_pipeline_clears_the_properties_editor(window, folder, answer):
     window.new_pipeline()
 
     assert editor._current_node is None
+
+
+def test_a_relative_pipeline_path_opens_as_an_absolute_one(window, folder, monkeypatch):
+    """cuvis-ui PATH hands over the folder and its first pipeline as typed; both
+    are made absolute so the open file compares equal to the browser's paths."""
+    monkeypatch.chdir(folder.parent)
+    relative = Path(folder.name)
+
+    assert window.open_folder(relative, relative / "two.yaml")
+
+    assert window.current_file == (folder / "two.yaml").absolute()
+    assert window.current_file.is_absolute()
+
+
+# Every way to replace the graph, against every answer to the unsaved-changes
+# question: Save saves first and goes on, Discard goes on, Cancel stays.
+
+Save = QMessageBox.StandardButton.Save
+Discard = QMessageBox.StandardButton.Discard
+Cancel = QMessageBox.StandardButton.Cancel
+
+
+def _spy_save(window):
+    spy = Mock(wraps=window.save_pipeline)
+    window.save_pipeline = spy
+    return spy
+
+
+def test_new_pipeline_save_answer_saves_then_clears(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+
+    window.new_pipeline()
+
+    saved.assert_called_once()
+    assert window.current_file is None
+    assert window.graph.all_nodes() == []
+    assert not window.windowTitle().startswith("*")
+
+
+def test_new_pipeline_cancel_keeps_the_graph(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Cancel)
+
+    window.new_pipeline()
+
+    assert window.current_file == folder / "one.yaml"
+    assert len(window.graph.all_nodes()) == 1
+    assert window.windowTitle().startswith("*")
+
+
+@pytest.mark.parametrize("button", [Save, Discard, Cancel])
+def test_open_pipeline_follows_the_answer(window, folder, answer, button):
+    window.open_folder(folder)
+    _edit(window)
+    answer(button)
+    saved = _spy_save(window)
+
+    opened = window.open_pipeline(folder / "two.yaml")
+
+    assert opened is (button != Cancel)
+    assert saved.call_count == (1 if button == Save else 0)
+    expected = folder / "two.yaml" if opened else folder / "one.yaml"
+    assert window.current_file == expected
+    assert window.windowTitle().startswith("*") is (not opened)
+
+
+def test_a_failed_save_keeps_the_open_pipeline(window, folder, answer, monkeypatch):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    monkeypatch.setattr(window._serializer, "to_yaml_file", Mock(side_effect=OSError("disk full")))
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
+
+    assert not window.open_pipeline(folder / "two.yaml")
+    assert window.current_file == folder / "one.yaml"
+    assert window.windowTitle().startswith("*")
+
+
+def test_browser_selection_save_answer_saves_then_opens(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    saved.assert_called_once()
+    assert window.current_file == folder / "two.yaml"
+    assert window.pipeline_browser.list_widget.currentRow() == 2
+
+
+def test_open_folder_save_answer_saves_then_switches(window, folder, tmp_path_factory, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+    other = tmp_path_factory.mktemp("other")
+    (other / "x.yaml").write_text(PIPELINE.format(name="x"), encoding="utf-8")
+
+    assert window.open_folder(other)
+
+    saved.assert_called_once()
+    assert window.current_folder == other
+    assert window.current_file == other / "x.yaml"
+
+
+def test_close_save_answer_saves_then_disconnects(window, folder, answer):
+    client = Mock(spec=CuvisAIClient)
+    window._client = client
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+
+    assert window.close()
+
+    saved.assert_called_once()
+    client.disconnect.assert_called_once()
+    window._client = None
