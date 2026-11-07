@@ -67,6 +67,15 @@ def _is_bundled(entry: dict[str, Any]) -> bool:
     return isinstance(origin, str) and Path(origin).name == _LEGACY_CATALOG_FILE
 
 
+def is_bundled_plugin(entry: dict[str, Any]) -> bool:
+    """Return True for a plugin entry from the bundled catalog.
+
+    A bundled plugin always comes back on the next :func:`load_plugin_entries`
+    call, so it cannot be removed from the store: at most it can be disabled.
+    """
+    return _is_bundled(entry)
+
+
 def _resolve_local_path(config: dict[str, Any], manifest_dir: Path) -> dict[str, Any]:
     """Resolve a plugin config's ``path`` to an absolute path.
 

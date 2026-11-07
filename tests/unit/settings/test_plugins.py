@@ -16,6 +16,7 @@ from cuvis_ai_ui.settings.plugins import (
     _resolve_local_path,
     build_manifest,
     collect_plugin_entries,
+    is_bundled_plugin,
     load_plugin_entries,
     load_plugin_entries_from_directory,
     merge_plugin_entries,
@@ -1023,3 +1024,26 @@ class TestCollectPluginEntries:
         _write_manifest(tmp_path / "dir", "y")
         collect_plugin_entries([tmp_path / "dir"])
         assert not store_file.exists()
+
+
+# ── is_bundled_plugin ─────────────────────────────────────────────────
+
+
+class TestIsBundledPlugin:
+    def test_bundled_source_is_bundled(self):
+        entry = _make_entry(name="a", source=BUNDLED_SOURCE)
+        assert is_bundled_plugin(entry) is True
+
+    def test_user_source_is_not_bundled(self):
+        entry = _make_entry(name="a", source="manifest")
+        assert is_bundled_plugin(entry) is False
+
+    def test_legacy_catalog_origin_is_bundled(self):
+        entry = _make_entry(name="a", source="manifest", origin="C:/old/cuvis_ai_catalog.yaml")
+        assert is_bundled_plugin(entry) is True
+
+    def test_matches_internal_check(self):
+        from cuvis_ai_ui.settings.plugins import _is_bundled
+
+        entry = _make_entry(name="a", source=BUNDLED_SOURCE)
+        assert is_bundled_plugin(entry) == _is_bundled(entry)

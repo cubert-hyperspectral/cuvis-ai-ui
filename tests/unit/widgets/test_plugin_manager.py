@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialogButtonBox,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
+from cuvis_ai_ui.settings.plugins import load_plugin_entries, save_plugin_entries
 from cuvis_ai_ui.widgets.plugin_manager import (
     PluginManagerDialog,
     SessionDialog,
@@ -956,6 +958,91 @@ def test_remove_selected_no_selection(mock_load, qapp, mock_grpc_client):
 
     # Should not crash
     dialog._remove_selected_plugins()
+
+
+# ---------------------------------------------------------------------------
+# _remove_selected_plugins - bundled plugins are disabled, not removed
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def real_store(tmp_path, monkeypatch):
+    """Point the plugin store at a temp folder and stub the bundled catalog."""
+    store_file = tmp_path / "plugins.json"
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_plugin_store_path",
+        lambda: store_file,
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_user_plugins_dir",
+        lambda: tmp_path / "app_plugins",
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_default_plugin_entries",
+        lambda: [
+            {
+                "name": "bundled_one",
+                "enabled": True,
+                "source": "bundled",
+                "config": {},
+                "origin": None,
+            }
+        ],
+    )
+    return store_file
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.question")
+def test_remove_selected_disables_bundled_and_removes_user_added(
+    mock_question, qapp, mock_grpc_client, real_store
+):
+    """Removing a bundled plugin disables it; a user-added plugin is dropped."""
+    from PySide6.QtWidgets import QMessageBox
+
+    mock_question.return_value = QMessageBox.StandardButton.Yes
+    save_plugin_entries(
+        [
+            {"name": "bundled_one", "enabled": True, "source": "bundled", "config": {}},
+            {
+                "name": "mine",
+                "enabled": True,
+                "source": "manifest",
+                "config": {"path": "/x"},
+                "origin": "/x/mine.yaml",
+            },
+        ]
+    )
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._status_table.selectAll()
+
+    dialog._remove_selected_plugins()
+
+    reloaded = load_plugin_entries()
+    names = {e["name"]: e for e in reloaded}
+    assert "bundled_one" in names
+    assert names["bundled_one"]["enabled"] is False
+    assert "mine" not in names
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.question")
+def test_remove_selected_confirmation_mentions_disabling(
+    mock_question, qapp, mock_grpc_client, real_store
+):
+    """The confirmation text says bundled plugins are disabled, not removed."""
+    from PySide6.QtWidgets import QMessageBox
+
+    mock_question.return_value = QMessageBox.StandardButton.No
+    save_plugin_entries(
+        [{"name": "bundled_one", "enabled": True, "source": "bundled", "config": {}}]
+    )
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._status_table.selectAll()
+    dialog._remove_selected_plugins()
+
+    confirmation_text = mock_question.call_args[0][2]
+    assert "disabl" in confirmation_text.lower()
 
 
 # ---------------------------------------------------------------------------

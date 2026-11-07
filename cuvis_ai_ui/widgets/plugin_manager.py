@@ -37,6 +37,7 @@ from ..grpc.client import CuvisAIClient
 from ..settings.plugins import (
     _resolve_local_path,
     build_manifest,
+    is_bundled_plugin,
     load_plugin_entries,
     load_plugin_entries_from_directory,
     merge_plugin_entries,
@@ -535,7 +536,13 @@ class PluginManagerDialog(QDialog):
             save_plugin_entries(self._plugin_entries)
 
     def _remove_selected_plugins(self) -> None:
-        """Remove selected plugins from persistence."""
+        """Remove selected plugins from persistence.
+
+        A bundled plugin cannot be removed: it is rebuilt from the catalog on
+        every load, so dropping it from the store only brings it back enabled
+        next time. Selecting a bundled plugin disables it instead; a
+        user-added plugin is removed as before.
+        """
         rows = {item.row() for item in self._status_table.selectedItems()}
         if not rows:
             return
@@ -552,15 +559,21 @@ class PluginManagerDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "Remove Plugins",
-            "Remove selected plugins from the persistent list?",
+            "Remove selected plugins from the persistent list? "
+            "Bundled plugins are disabled instead of removed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        self._plugin_entries = [
-            entry for entry in self._plugin_entries if entry.get("name") not in names
-        ]
+        selected = set(names)
+        updated = []
+        for entry in self._plugin_entries:
+            if entry.get("name") not in selected:
+                updated.append(entry)
+            elif is_bundled_plugin(entry):
+                updated.append({**entry, "enabled": False})
+        self._plugin_entries = updated
         save_plugin_entries(self._plugin_entries)
         self._refresh_status()
 
