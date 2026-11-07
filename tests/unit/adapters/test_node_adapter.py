@@ -853,3 +853,12 @@ def test_node_class_init_uses_class_attribute_node_info(qapp):
 
     assert instance_b.cuvis_class_name == "B"
     assert instance_b.cuvis_class_path == "x.B"
+
+
+def test_resolve_class_path_bare_class_name(node_registry):
+    """A bare class name resolves like the server does: by its unique last segment."""
+    assert (
+        node_registry.resolve_class_path("MinMaxNormalizer")
+        == "cuvis_ai.node.normalization.MinMaxNormalizer"
+    )
+    assert node_registry.resolve_class_path("Nope") is None

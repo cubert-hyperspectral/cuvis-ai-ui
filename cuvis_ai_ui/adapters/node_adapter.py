@@ -378,22 +378,22 @@ class NodeRegistry:
 
         A pipeline saved by cuvis-ai names a plugin class by its defining
         module (``pkg.node.module.Cls``), while the plugin manifest may list
-        the package export (``pkg.node.Cls``). This mirrors the matching
-        cuvis-ai-core's server-side registry does: an exact registered path is
-        returned first; otherwise, for a dotted path, the single registered
-        path sharing its last segment; if several share it, the single one of
-        those also sharing the query's top-level package; otherwise ``None``.
+        the package export (``pkg.node.Cls``), and a hand-written pipeline may
+        give the bare class name. This mirrors the matching cuvis-ai-core's
+        server-side registry does: an exact registered path is returned first;
+        otherwise the single registered path sharing the last segment; if
+        several share it, the single one of those also sharing the query's
+        top-level package; otherwise ``None``.
 
         Args:
-            class_path: Full class import path, exact or a defining-module path.
+            class_path: Full class import path, a defining-module path or a
+                bare class name.
 
         Returns:
             The matching registered class path, or ``None``.
         """
         if class_path in self._nodes:
             return class_path
-        if "." not in class_path:
-            return None
 
         last_segment = class_path.rsplit(".", 1)[-1]
         candidates = [p for p in self._nodes if p.rsplit(".", 1)[-1] == last_segment]
