@@ -266,6 +266,24 @@ def test_from_config_failed_validation_keeps_the_open_pipelines_plugins(graph):
     assert saved["plugins"] == ["q"]
 
 
+def test_to_config_prefers_the_nodes_stored_owner_over_the_registry(graph):
+    """A folder switch can replace the registry's classes with a different
+    plugin's class of the same bare name; the node's own stored owner from
+    when it was created must still win over whatever the registry resolves
+    the class_name to now."""
+    infos = [_info("a.PrivateNode", inputs=["x"], plugin="A")]
+    config = _config([("n", "a.PrivateNode")], [])
+    serializer = _load(graph, infos, config)
+
+    # Simulate a folder switch: the registry is cleared and re-registered with
+    # a different plugin's class that resolves to the same bare name.
+    serializer.node_registry.clear()
+    serializer.node_registry.register_nodes([_info("b.PrivateNode", inputs=["x"], plugin="B")])
+
+    saved = serializer.to_config(graph)
+    assert saved["plugins"] == ["A"]
+
+
 def test_to_config_core_builtin_needs_no_plugin(graph):
     """A core built-in carries an empty plugin_name: it needs no declaration and
     is not reported as a node whose owner is unknown."""

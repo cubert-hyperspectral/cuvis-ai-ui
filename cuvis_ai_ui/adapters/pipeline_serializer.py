@@ -679,18 +679,20 @@ class PipelineSerializer:
     ) -> list[str] | None:
         """Derive the bare plugin-name set the pipeline depends on.
 
-        Looks up each node's class_name in the node registry and collects the
-        non-empty ``plugin_name`` of its owning plugin. The registry can lose
-        track of a class between load and save (a folder switch clears and
-        re-registers the shared registry while the graph itself is kept), so a
-        node whose class the registry no longer knows falls back to the plugin
-        name it stored when it was created (``cuvis_plugin_name``). A core
-        built-in is known to the registry with an empty ``plugin_name`` and needs
-        no declaration. A node with neither a registry entry nor a stored owner
-        (a placeholder for a class unknown even at load time) can't be
-        attributed; it's recorded as a load warning, and the plugins the
-        pipeline declared when it was loaded (:attr:`loaded_plugins`) are kept
-        instead so nothing declared is silently lost.
+        A node's own stored owner (``cuvis_plugin_name``, set when the node was
+        created) wins first: the registry can resolve a node's class_name to a
+        different plugin's class of the same bare name after a folder switch
+        (the shared registry is cleared and re-registered while the graph
+        itself is kept), and the node's stored owner is the one that is
+        actually still on screen. Only when the node carries no stored owner
+        does the current registry's ``plugin_name`` for its class_name apply.
+        A core built-in is known to the registry (or was created) with an
+        empty ``plugin_name`` and needs no declaration. A node with neither a
+        stored owner nor a registry entry (a placeholder for a class unknown
+        even at load time) can't be attributed; it's recorded as a load
+        warning, and the plugins the pipeline declared when it was loaded
+        (:attr:`loaded_plugins`) are kept instead so nothing declared is
+        silently lost.
 
         Args:
             graph_nodes: The live graph nodes, in the same order as nodes_list.
@@ -704,13 +706,13 @@ class PipelineSerializer:
         plugin_names: set[str] = set()
         unknown: list[str] = []
         for node, node_cfg in zip(graph_nodes, nodes_list):
-            info = self.node_registry.get_node_info(node_cfg.class_name)
-            if info is not None:
-                plugin_name = info.get("plugin_name") or ""
-            else:
-                owner = getattr(node, "cuvis_plugin_name", "")
-                plugin_name = owner if isinstance(owner, str) else ""
-                if not plugin_name:
+            owner = getattr(node, "cuvis_plugin_name", "")
+            plugin_name = owner if isinstance(owner, str) else ""
+            if not plugin_name:
+                info = self.node_registry.get_node_info(node_cfg.class_name)
+                if info is not None:
+                    plugin_name = info.get("plugin_name") or ""
+                else:
                     unknown.append(node_cfg.class_name)
             if plugin_name:
                 plugin_names.add(plugin_name)
