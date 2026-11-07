@@ -129,7 +129,7 @@ To switch to a remote server (or opt back into legacy auto-start), open **Tools 
 
 ### Adding new plugins after install
 
-Put the manifest in the app's `plugins/` folder (or a pipelines folder's `plugins/` subfolder), or add it in **Tools > Manage Plugins**. The palette shows its nodes right away. When a pipeline that uses the plugin runs, the server installs it into the same `server-venv`.
+Put the manifest in the app's `plugins/` folder (or a pipelines folder's `plugins/` subfolder), or add it in **Tools > Manage Plugins**. The palette shows its nodes right away. When a pipeline that uses the plugin runs, the server prepares (or reuses) a separate cached environment with the pipeline's plugins.
 
 ### What's bundled vs. installed separately
 
@@ -139,7 +139,7 @@ Put the manifest in the app's `plugins/` folder (or a pipelines folder's `plugin
 | cuvis-ai-core gRPC server (incl. PyTorch CUDA 12.8) | installed at install time | `bootstrap.ps1` creates the per-user `server-venv` from the shipped core source (tag in `.cuvis-ai-core-version`) |
 | FFmpeg (shared, LGPL) | yes | `{app}\ffmpeg\bin` — torchcodec / `ToVideoNode` use it |
 | Graphviz | yes | `{app}\graphviz\bin` — `pipeline.visualize(format="png"/"svg")` uses `dot` |
-| cuvis-ai plugin catalog | yes | `cuvis_ai_ui\catalog\`: the released plugin manifests; each plugin installs on the server when a pipeline that uses it runs |
+| cuvis-ai plugin catalog | yes | `cuvis_ai_ui\catalog\`: the released plugin manifests; each plugin lands in a per-pipeline cached environment when a pipeline that uses it runs |
 | **Cuvis SDK** (C++ shared lib for `.cu3s` / `.cu3` I/O) | **no, install separately** | Only needed to read cubes, through the cuvis-ai-dataloader plugin; drawing and editing pipelines works without it. The post-install dialog links to the [Cubert SDK download page](https://cloud.cubert-gmbh.de/s/qpxkyWkycrmBK9m). |
 
 ## Configuration
