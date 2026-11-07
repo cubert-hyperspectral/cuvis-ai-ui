@@ -1,6 +1,6 @@
 """Reconnecting through Tools > Connect to Server in local mode."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from cuvis_ai_ui.main_window import MainWindow
 
@@ -81,6 +81,36 @@ def test_reconnect_shows_the_manager_error_when_the_server_is_not_ready(
 
     warning_call = mock_messagebox.warning.call_args
     assert "the server process exited" in warning_call.args[2]
+
+
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
+def test_reconnect_locally_stops_the_server_this_window_already_owns(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, qtbot
+):
+    """Reconnecting locally to a port nothing listens on must stop the
+    manager this window already started before replacing it, or the old
+    server process is orphaned and keeps running until the app exits."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    old_manager = MagicMock()
+    old_manager.is_running.return_value = True
+    window.set_server_manager(old_manager)
+
+    new_manager = mock_manager_cls.return_value
+    new_manager.wait_ready.return_value = True
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings(port=50052)
+
+    window._show_connection_dialog()
+
+    old_manager.stop.assert_called_once()
+    assert window.server_manager is new_manager
 
 
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")

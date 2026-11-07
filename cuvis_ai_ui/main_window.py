@@ -726,8 +726,15 @@ class MainWindow(QMainWindow):
         host = settings.get("host", "localhost")
         port = settings.get("port", 50051)
 
-        # Stop existing local server if switching away
-        if self._server_manager is not None and settings["mode"] == "remote":
+        # Stop a server this window started before giving it up: switching to
+        # remote, switching to a different local port nothing listens on yet,
+        # or reconnecting to a manager that is no longer answering. Otherwise
+        # that process keeps running, unreachable, until the app exits.
+        if self._server_manager is not None and (
+            settings["mode"] == "remote"
+            or self._server_manager.port != port
+            or not self._server_manager.is_running()
+        ):
             self._server_manager.stop()
             self._server_manager = None
 
