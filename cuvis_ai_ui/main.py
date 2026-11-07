@@ -175,6 +175,12 @@ def main(
             )
         except Exception as e:
             logger.error(f"Failed to register plugins: {e}", exc_info=True)
+            # The session may already be a fresh, empty one: offer no nodes or
+            # plugin names rather than the previous session's.
+            window.node_registry.clear()
+            window.node_registry.register_with_graph(window.graph)
+            palette.refresh_nodes([])
+            window.set_known_plugins(set())
             QMessageBox.warning(
                 window,
                 "Plugin Load Error",
