@@ -218,6 +218,24 @@ def test_start_without_a_server_runtime_explains(mock_find_exe):
 
 @patch("cuvis_ai_ui.server.manager.subprocess.Popen")
 @patch("cuvis_ai_ui.server.manager._find_server_executable")
+def test_start_handles_a_log_that_cannot_be_opened(mock_find_exe, mock_popen, data_dir):
+    mock_find_exe.return_value = ["python", "-m", SERVER_MODULE]
+
+    manager = ServerManager()
+    data_dir.mkdir(parents=True)
+    # A directory where the log file should be makes the open() call fail.
+    manager.log_path.mkdir()
+
+    manager.start()
+
+    mock_popen.assert_not_called()
+    assert manager.process is None
+    assert manager.is_running() is False
+    assert str(manager.log_path) in manager.last_error
+
+
+@patch("cuvis_ai_ui.server.manager.subprocess.Popen")
+@patch("cuvis_ai_ui.server.manager._find_server_executable")
 def test_start_sends_server_output_to_the_log(mock_find_exe, mock_popen, data_dir):
     mock_find_exe.return_value = ["python", "-m", SERVER_MODULE]
     mock_popen.return_value = Mock(pid=1, poll=Mock(return_value=None))

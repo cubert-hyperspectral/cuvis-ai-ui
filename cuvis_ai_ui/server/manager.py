@@ -132,8 +132,15 @@ class ServerManager:
             return
 
         logger.info(f"Starting local gRPC server: {' '.join(cmd)} (port {self._port})")
-        self._log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._log_path, "ab") as log:
+        try:
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            log = open(self._log_path, "ab")
+        except OSError as e:
+            self._last_error = f"Could not open the server log ({self._log_path}): {e}"
+            logger.warning(self._last_error)
+            self._process = None
+            return
+        with log:
             stamp = time.strftime("%Y-%m-%d %H:%M:%S")
             log.write(f"\n--- server start {stamp}: {' '.join(cmd)} ---\n".encode())
             log.flush()
