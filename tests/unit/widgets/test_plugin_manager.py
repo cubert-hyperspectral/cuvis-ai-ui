@@ -298,8 +298,9 @@ def test_plugin_manager_dialog_is_modal(qapp, mock_grpc_client):
 # ---------------------------------------------------------------------------
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_populates_table_rows(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_populates_table_rows(mock_load, mock_collect, qapp, mock_grpc_client):
     """Test that _refresh_status creates one table row per plugin entry."""
     entries = [
         {
@@ -316,6 +317,7 @@ def test_refresh_status_populates_table_rows(mock_load, qapp, mock_grpc_client):
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -334,8 +336,11 @@ def test_refresh_status_populates_table_rows(mock_load, qapp, mock_grpc_client):
     assert load_1.checkState() == Qt.CheckState.Unchecked
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_shows_source_from_config_repo(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_shows_source_from_config_repo(
+    mock_load, mock_collect, qapp, mock_grpc_client
+):
     """Test that source column shows repo URL when origin is missing."""
     entries = [
         {
@@ -346,6 +351,7 @@ def test_refresh_status_shows_source_from_config_repo(mock_load, qapp, mock_grpc
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -353,8 +359,11 @@ def test_refresh_status_shows_source_from_config_repo(mock_load, qapp, mock_grpc
     assert "git@host:org/repo.git" in source_text
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_shows_source_from_config_path(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_shows_source_from_config_path(
+    mock_load, mock_collect, qapp, mock_grpc_client
+):
     """Test that source column shows path when origin is missing and config has path."""
     entries = [
         {
@@ -365,6 +374,7 @@ def test_refresh_status_shows_source_from_config_path(mock_load, qapp, mock_grpc
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -372,8 +382,9 @@ def test_refresh_status_shows_source_from_config_path(mock_load, qapp, mock_grpc
     assert "/home/user/plugins/myplugin" in source_text
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_shows_origin_when_set(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_shows_origin_when_set(mock_load, mock_collect, qapp, mock_grpc_client):
     """Test that source column shows origin field when present."""
     entries = [
         {
@@ -385,6 +396,7 @@ def test_refresh_status_shows_origin_when_set(mock_load, qapp, mock_grpc_client)
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -392,8 +404,11 @@ def test_refresh_status_shows_origin_when_set(mock_load, qapp, mock_grpc_client)
     assert source_text == "/some/manifest.yaml"
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_provides_column_shows_count(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_provides_column_shows_count(
+    mock_load, mock_collect, qapp, mock_grpc_client
+):
     """Test that provided nodes column shows count when capabilities list is present."""
     entries = [
         {
@@ -404,6 +419,7 @@ def test_refresh_status_provides_column_shows_count(mock_load, qapp, mock_grpc_c
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -411,8 +427,9 @@ def test_refresh_status_provides_column_shows_count(mock_load, qapp, mock_grpc_c
     assert provided == "3"
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_provides_column_shows_auto(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_provides_column_shows_auto(mock_load, mock_collect, qapp, mock_grpc_client):
     """Test that provided nodes column shows 'auto' when no provides list."""
     entries = [
         {
@@ -423,6 +440,7 @@ def test_refresh_status_provides_column_shows_auto(mock_load, qapp, mock_grpc_cl
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -430,8 +448,11 @@ def test_refresh_status_provides_column_shows_auto(mock_load, qapp, mock_grpc_cl
     assert provided == "auto"
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_refresh_status_provides_column_from_loaded_nodes(mock_load, qapp, mock_grpc_client):
+def test_refresh_status_provides_column_from_loaded_nodes(
+    mock_load, mock_collect, qapp, mock_grpc_client
+):
     """Test provided column shows count from server when plugin is loaded."""
     entries = [
         {
@@ -442,6 +463,7 @@ def test_refresh_status_provides_column_from_loaded_nodes(mock_load, qapp, mock_
         },
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
     mock_grpc_client.list_available_nodes.return_value = [
         {"source": "plugin", "plugin_name": "server_plugin"},
         {"source": "plugin", "plugin_name": "server_plugin"},
@@ -458,14 +480,16 @@ def test_refresh_status_provides_column_from_loaded_nodes(mock_load, qapp, mock_
 # ---------------------------------------------------------------------------
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
-def test_toggle_enable_checkbox_saves(mock_load, mock_save, qapp, mock_grpc_client):
+def test_toggle_enable_checkbox_saves(mock_load, mock_save, mock_collect, qapp, mock_grpc_client):
     """Test that toggling the load checkbox persists the change."""
     entries = [
         {"name": "togglable", "enabled": True, "source": "git", "config": {}},
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -894,10 +918,13 @@ def test_preview_manifest_error(qapp, mock_grpc_client):
 # ---------------------------------------------------------------------------
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.question")
-def test_remove_selected_plugins(mock_question, mock_load, mock_save, qapp, mock_grpc_client):
+def test_remove_selected_plugins(
+    mock_question, mock_load, mock_save, mock_collect, qapp, mock_grpc_client
+):
     """Test removing selected plugins."""
     from PySide6.QtWidgets import QMessageBox
 
@@ -907,6 +934,7 @@ def test_remove_selected_plugins(mock_question, mock_load, mock_save, qapp, mock
         {"name": "remove_me", "enabled": True, "source": "git", "config": {}},
     ]
     mock_load.return_value = entries
+    mock_collect.return_value = entries
 
     dialog = PluginManagerDialog(client=mock_grpc_client)
 
@@ -1043,6 +1071,138 @@ def test_remove_selected_confirmation_mentions_disabling(
 
     confirmation_text = mock_question.call_args[0][2]
     assert "disabl" in confirmation_text.lower()
+
+
+# ---------------------------------------------------------------------------
+# extra_dirs - folder-manifest rows in the Plugin Manager
+# ---------------------------------------------------------------------------
+
+
+def _write_folder_manifest(directory, name, tag="v1"):
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.yaml"
+    path.write_text(
+        f"name: {name}\nrepo: https://example.com/{name}.git\ntag: {tag}\n"
+        "capabilities:\n  - class_name: pkg.node.Node\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.fixture
+def no_bundled_catalog(tmp_path, monkeypatch):
+    """Keep collect_plugin_entries from picking up the real bundled catalog, the
+    real persisted plugins.json, or the app's own plugins folder, so folder-row
+    tests see only their fixtures."""
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_default_plugin_entries",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_plugin_store_path",
+        lambda: tmp_path / "unused_plugins.json",
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_user_plugins_dir",
+        lambda: tmp_path / "unused_app_plugins",
+    )
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
+def test_folder_plugin_shows_as_read_only_row(
+    mock_load, qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+):
+    """A folder manifest with a unique name shows a row that isn't saved."""
+    mock_load.return_value = []
+    _write_folder_manifest(tmp_path, "folder_plugin")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
+
+    assert dialog._status_table.rowCount() == 1
+    name_item = dialog._status_table.item(0, STATUS_COL_NAME)
+    assert name_item.text() == "folder_plugin"
+
+    load_item = dialog._status_table.item(0, STATUS_COL_LOAD)
+    assert not (load_item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+
+    source_item = dialog._status_table.item(0, STATUS_COL_SOURCE)
+    assert str(tmp_path / "folder_plugin.yaml") in source_item.text()
+
+
+def test_folder_plugin_row_not_saved_on_other_toggle(
+    qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+):
+    """Toggling a saved row does not write the folder-only row to the store."""
+    save_plugin_entries([{"name": "saved_one", "enabled": True, "source": "git", "config": {}}])
+    _write_folder_manifest(tmp_path, "folder_plugin")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
+    assert dialog._status_table.rowCount() == 2
+
+    rows_by_name = {
+        dialog._status_table.item(r, STATUS_COL_NAME).text(): r
+        for r in range(dialog._status_table.rowCount())
+    }
+    saved_row = rows_by_name["saved_one"]
+    load_item = dialog._status_table.item(saved_row, STATUS_COL_LOAD)
+    load_item.setCheckState(Qt.CheckState.Unchecked)
+
+    reloaded = load_plugin_entries()
+    saved_names = [e["name"] for e in reloaded]
+    assert saved_names == ["saved_one"]
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.question")
+def test_remove_selected_skips_folder_rows(
+    mock_question, qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+):
+    """Remove Selected does nothing to a folder-only row even when selected."""
+    from PySide6.QtWidgets import QMessageBox
+
+    mock_question.return_value = QMessageBox.StandardButton.Yes
+    save_plugin_entries([{"name": "saved_one", "enabled": True, "source": "git", "config": {}}])
+    _write_folder_manifest(tmp_path, "folder_plugin")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
+    dialog._status_table.selectAll()
+    dialog._remove_selected_plugins()
+
+    saved_names = [e["name"] for e in load_plugin_entries()]
+    assert "folder_plugin" not in saved_names
+
+
+def test_folder_manifest_overriding_bundled_name_keeps_checkbox_working(
+    qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+):
+    """A folder manifest overriding a saved name shows the folder as source,
+    but the row is still a saved entry: the checkbox still writes it."""
+    save_plugin_entries(
+        [{"name": "saved_one", "enabled": True, "source": "manifest", "config": {"path": "/old"}}]
+    )
+    _write_folder_manifest(tmp_path, "saved_one")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
+    assert dialog._status_table.rowCount() == 1
+
+    source_item = dialog._status_table.item(0, STATUS_COL_SOURCE)
+    assert str(tmp_path / "saved_one.yaml") in source_item.text()
+
+    load_item = dialog._status_table.item(0, STATUS_COL_LOAD)
+    assert bool(load_item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+    load_item.setCheckState(Qt.CheckState.Unchecked)
+
+    saved = load_plugin_entries()
+    assert any(e["name"] == "saved_one" and e["enabled"] is False for e in saved)
+
+
+def test_no_extra_dirs_behaves_as_before(qapp, mock_grpc_client, no_bundled_catalog):
+    """Without extra_dirs, the table is built from the saved entries only."""
+    save_plugin_entries([{"name": "saved_one", "enabled": True, "source": "git", "config": {}}])
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+
+    assert dialog._status_table.rowCount() == 1
+    assert dialog._status_table.item(0, STATUS_COL_NAME).text() == "saved_one"
 
 
 # ---------------------------------------------------------------------------

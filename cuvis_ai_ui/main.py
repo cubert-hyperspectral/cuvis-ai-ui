@@ -230,7 +230,8 @@ def main(
                 window, "Not Connected", "Please connect to the gRPC server to manage plugins."
             )
             return
-        PluginManagerDialog(current_client, window).exec()
+        extra_dirs = plugin_dirs_for(plugins_dirs, window.current_folder)
+        PluginManagerDialog(current_client, window, extra_dirs=extra_dirs).exec()
         # Loads, removals and enable flags all change the plugin set
         refresh_plugins(fresh_session=True)
 
