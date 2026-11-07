@@ -4,6 +4,7 @@ This module provides CuvisNodeAdapter - a NodeGraphQt BaseNode subclass
 that wraps cuvis-ai node information for visual editing.
 """
 
+from collections.abc import Collection
 from typing import Any, ClassVar, TypedDict, cast
 
 from NodeGraphQt import BaseNode
@@ -387,24 +388,28 @@ class NodeRegistry:
         for node_info in nodes:
             self.register_node(node_info)
 
-    def resolve_class_path(self, class_path: str) -> str | None:
+    def resolve_class_path(
+        self, class_path: str, plugins: Collection[str] | None = None
+    ) -> str | None:
         """Resolve a class path to a registered one, tolerating the defining module.
 
         A pipeline saved by cuvis-ai names a plugin class by its defining
         module (``pkg.node.module.Cls``), while the plugin manifest may list
         the package export (``pkg.node.Cls``), and a hand-written pipeline may
         give the bare class name. An exact registered path is returned first.
-        Otherwise a dotted path resolves to the single registered path with
-        the same last segment and the same top-level package, and a bare name
-        to the single registered path with that last segment; anything else is
-        ``None``. The package check matters because this registry holds every
-        catalog plugin, while the server resolves a run against the
-        pipeline's declared plugins only: a same-named class of another plugin
-        is a different class.
+        Otherwise the single registered path with the same last segment wins,
+        among the classes of ``plugins`` and the core built-ins when
+        ``plugins`` is given, and within the same top-level package for a
+        dotted path; anything else is ``None``. This registry holds every
+        catalog plugin while the server resolves a run against the pipeline's
+        declared plugins only, so a same-named class of another plugin must not
+        stand in for a missing one.
 
         Args:
             class_path: Full class import path, a defining-module path or a
                 bare class name.
+            plugins: The plugins the pipeline declares; ``None`` considers the
+                whole registry.
 
         Returns:
             The matching registered class path, or ``None``.
@@ -414,37 +419,50 @@ class NodeRegistry:
 
         last_segment = class_path.rsplit(".", 1)[-1]
         candidates = [p for p in self._nodes if p.rsplit(".", 1)[-1] == last_segment]
+        if plugins is not None:
+            candidates = [
+                p
+                for p in candidates
+                if not self._nodes[p].get("plugin_name")
+                or self._nodes[p].get("plugin_name") in plugins
+            ]
         if "." in class_path:
             top_level = class_path.split(".", 1)[0]
             candidates = [p for p in candidates if p.split(".", 1)[0] == top_level]
         return candidates[0] if len(candidates) == 1 else None
 
-    def get_node_info(self, class_path: str) -> NodeInfoDict | None:
+    def get_node_info(
+        self, class_path: str, plugins: Collection[str] | None = None
+    ) -> NodeInfoDict | None:
         """Get node info by class path.
 
         Args:
             class_path: Full class import path, exact or a defining-module path
                 resolved via :meth:`resolve_class_path`.
+            plugins: Plugin scope for the fallback, see :meth:`resolve_class_path`.
 
         Returns:
             Node info dictionary or None
         """
-        resolved = self.resolve_class_path(class_path)
+        resolved = self.resolve_class_path(class_path, plugins)
         if resolved is None:
             return None
         return self._nodes.get(resolved)
 
-    def get_node_class(self, class_path: str) -> type[BaseNode] | None:
+    def get_node_class(
+        self, class_path: str, plugins: Collection[str] | None = None
+    ) -> type[BaseNode] | None:
         """Get NodeGraphQt node class by class path.
 
         Args:
             class_path: Full class import path, exact or a defining-module path
                 resolved via :meth:`resolve_class_path`.
+            plugins: Plugin scope for the fallback, see :meth:`resolve_class_path`.
 
         Returns:
             Node class or None
         """
-        resolved = self.resolve_class_path(class_path)
+        resolved = self.resolve_class_path(class_path, plugins)
         if resolved is None:
             return None
         return self._node_classes.get(resolved)

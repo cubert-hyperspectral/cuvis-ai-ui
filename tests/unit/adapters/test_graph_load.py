@@ -300,6 +300,28 @@ def test_class_of_a_missing_plugin_is_not_borrowed_from_another_plugin(graph):
     assert saved["plugins"] == ["wanted"]
 
 
+def test_bare_class_name_of_a_missing_plugin_is_not_borrowed(graph):
+    """A bare class name only resolves within the pipeline's declared plugins,
+    so a same-named class of another plugin neither replaces the node nor the
+    declaration on save."""
+    infos = [_info("other_pkg.node.Transform", inputs=["x"], plugin="other")]
+    config = _config([("n", "Transform")], [], plugins=("wanted",))
+    serializer = _load(graph, infos, config, known_plugins={"wanted", "other"})
+
+    assert serializer._load_missing_nodes == {"Transform"}
+    saved = serializer.to_config(graph)
+    assert saved["plugins"] == ["wanted"]
+
+
+def test_a_pipeline_without_plugins_resolves_bare_names_against_the_catalog(graph):
+    infos = [_info("other_pkg.node.Transform", inputs=["x"], plugin="other")]
+    config = _config([("n", "Transform")], [], plugins=())
+    serializer = _load(graph, infos, config)
+
+    assert serializer._load_missing_nodes == set()
+    assert serializer.to_config(graph)["plugins"] == ["other"]
+
+
 def test_from_config_failed_validation_keeps_the_open_pipelines_plugins(graph):
     """A load that fails Pydantic validation must not wipe the plugins the
     graph still on screen needs: to_config has to keep declaring them."""

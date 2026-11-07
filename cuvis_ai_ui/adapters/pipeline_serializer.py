@@ -206,7 +206,10 @@ class PipelineSerializer:
                 "name": node_config.name,
                 "hparams": node_config.hparams,
             }
-            known_class = self.node_registry.get_node_class(node_config.class_name) is not None
+            known_class = (
+                self.node_registry.get_node_class(node_config.class_name, self._plugin_scope())
+                is not None
+            )
             if known_class:
                 input_hints = input_port_hints_by_node.get(node_config.name)
                 output_hints = output_port_hints_by_node.get(node_config.name)
@@ -296,9 +299,11 @@ class PipelineSerializer:
         # Get the node class from registry. resolve_class_path tolerates a
         # class_path naming the defining module (cuvis-ai's own save format)
         # while the registry holds the plugin manifest's package export; the
-        # registered path can then differ from the yaml's own string.
-        resolved_class_path = self.node_registry.resolve_class_path(class_path)
-        node_class = self.node_registry.get_node_class(class_path)
+        # registered path can then differ from the yaml's own string. The
+        # fallback only looks at the pipeline's declared plugins.
+        scope = self._plugin_scope()
+        resolved_class_path = self.node_registry.resolve_class_path(class_path, scope)
+        node_class = self.node_registry.get_node_class(class_path, scope)
         known_class = node_class is not None
 
         if node_class is None:
@@ -672,6 +677,14 @@ class PipelineSerializer:
         config = self.to_config(graph, metadata)
         return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
+    def _plugin_scope(self) -> set[str] | None:
+        """The plugins the loaded pipeline declares, or None when it declares none.
+
+        Class-name fallback stays within these (and the core built-ins), as the
+        server resolves a run against the declared plugins only.
+        """
+        return set(self.loaded_plugins) or None
+
     def _collect_pipeline_plugins(
         self, graph_nodes: list[Any], nodes_list: list[NodeConfig]
     ) -> list[str] | None:
@@ -707,7 +720,7 @@ class PipelineSerializer:
             owner = getattr(node, "cuvis_plugin_name", "")
             plugin_name = owner if isinstance(owner, str) else ""
             if not plugin_name:
-                info = self.node_registry.get_node_info(node_cfg.class_name)
+                info = self.node_registry.get_node_info(node_cfg.class_name, self._plugin_scope())
                 if info is not None:
                     plugin_name = info.get("plugin_name") or ""
                 else:

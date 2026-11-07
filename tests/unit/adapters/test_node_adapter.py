@@ -473,6 +473,41 @@ def test_resolve_class_path_does_not_borrow_a_class_from_another_package():
     assert registry.resolve_class_path("DiceLoss") == "cuvis_ai_unet.node.losses.DiceLoss"
 
 
+def test_resolve_class_path_fallback_stays_within_the_given_plugins():
+    """With a plugin scope (the pipeline's declared plugins), the fallback only
+    considers classes of those plugins and core built-ins; an exact path still
+    resolves whatever plugin registered it."""
+
+    def info(path, plugin):
+        return {
+            "class_name": path.rsplit(".", 1)[-1],
+            "full_path": path,
+            "source": "plugin" if plugin else "builtin",
+            "plugin_name": plugin,
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+
+    registry = NodeRegistry()
+    registry.register_nodes(
+        [info("other_pkg.node.Transform", "other"), info("core.node.Builtin", "")]
+    )
+
+    assert registry.resolve_class_path("Transform", plugins={"wanted"}) is None
+    assert registry.resolve_class_path("Transform", plugins={"other"}) == (
+        "other_pkg.node.Transform"
+    )
+    assert registry.resolve_class_path("Builtin", plugins={"wanted"}) == "core.node.Builtin"
+    assert registry.resolve_class_path("other_pkg.node.Transform", plugins={"wanted"}) == (
+        "other_pkg.node.Transform"
+    )
+    assert registry.get_node_class("Transform", plugins={"wanted"}) is None
+    assert registry.get_node_info("Transform", plugins={"wanted"}) is None
+
+
 def test_resolve_class_path_not_found_returns_none(node_registry):
     """A path with no last-segment match returns None."""
     assert node_registry.resolve_class_path("nonexistent.path.Nope") is None
