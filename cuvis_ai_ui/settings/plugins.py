@@ -14,6 +14,7 @@ so a newer UI version refreshes their config instead of keeping a stale copy.
 
 from __future__ import annotations
 
+import datetime
 import json
 from collections.abc import Iterable
 from pathlib import Path
@@ -433,10 +434,23 @@ def write_manifest_temp(manifest: list[dict[str, Any]] | dict[str, Any]) -> Path
 
     The payload is the plugin set the UI registers: a list of bare plugin
     manifests (see :func:`build_manifest`). The gRPC client reads this file back
-    and registers each manifest with one ``LoadPlugin`` call.
+    and registers each manifest with one ``LoadPlugin`` call. A YAML date (an
+    unquoted ``tag: 2026-01-01``) is written as its text.
     """
     import tempfile
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(manifest, f)
+        try:
+            json.dump(manifest, f, default=_json_text)
+        except TypeError:
+            f.close()
+            Path(f.name).unlink(missing_ok=True)
+            raise
         return Path(f.name)
+
+
+def _json_text(value: Any) -> str:
+    """JSON fallback for the scalar types YAML produces beyond JSON's own."""
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")

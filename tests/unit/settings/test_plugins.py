@@ -1,5 +1,6 @@
 """Tests for plugin settings persistence."""
 
+import datetime
 import json
 from pathlib import Path
 
@@ -771,6 +772,16 @@ class TestWriteManifestTemp:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             assert data == []
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_yaml_dates_are_written_as_text(self):
+        """An unquoted tag such as 2026-01-01 reads from YAML as a date."""
+        manifest = [{"name": "p1", "tag": datetime.date(2026, 1, 1)}]
+        path = write_manifest_temp(manifest)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            assert data == [{"name": "p1", "tag": "2026-01-01"}]
         finally:
             path.unlink(missing_ok=True)
 

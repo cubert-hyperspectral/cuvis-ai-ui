@@ -82,24 +82,40 @@ def register_plugins(
     server clones, installs and imports a plugin when a pipeline that uses it
     is loaded for a run, so anything that runs pipelines must treat folder
     manifests as untrusted.
-    """
-    if fresh_session:
-        client.close_session()
-        client.create_session()
 
-    result = PluginRegistration()
+    The manifest is written before the session is replaced, so a plugin set
+    that cannot be serialized leaves the working session alone.
+    """
     manifest = build_manifest(entries, enabled_only=True)
-    if manifest:
-        temp_path = write_manifest_temp(manifest)
-        try:
+    temp_path = write_manifest_temp(manifest) if manifest else None
+    try:
+        if fresh_session:
+            _replace_session(client)
+
+        result = PluginRegistration()
+        if temp_path is not None:
             response = client.load_plugins(temp_path)
-        finally:
+            result.loaded = list(response.get("loaded_plugins", []))
+            result.failed = list(response.get("failed_plugins", []))
+            if result.failed:
+                logger.warning(f"Failed to load plugins: {result.failed}")
+    finally:
+        if temp_path is not None:
             temp_path.unlink(missing_ok=True)
-        result.loaded = list(response.get("loaded_plugins", []))
-        result.failed = list(response.get("failed_plugins", []))
-        if result.failed:
-            logger.warning(f"Failed to load plugins: {result.failed}")
 
     result.nodes = enrich_node_list(client.list_available_nodes())
     logger.info(f"Registered {result.status_text()}")
     return result
+
+
+def _replace_session(client: CuvisAIClient) -> None:
+    """Close the server session and open a new one.
+
+    A close that fails is tried once more; if it still fails the new session
+    is opened anyway and the old one is named in the log, since it stays open
+    on the server.
+    """
+    old_session = client.session_id
+    if not (client.close_session() or client.close_session()):
+        logger.warning(f"Could not close server session {old_session}; it stays open")
+    client.create_session()

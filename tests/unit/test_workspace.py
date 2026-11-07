@@ -120,6 +120,30 @@ class TestRegisterPlugins:
             "load_plugins",
         ]
 
+    def test_a_manifest_that_cannot_be_written_keeps_the_old_session(self, client, monkeypatch):
+        """The plugin set is written out before the session is replaced, so a
+        manifest that fails there leaves the working session and its catalog."""
+        monkeypatch.setattr(
+            "cuvis_ai_ui.workspace.write_manifest_temp", Mock(side_effect=TypeError("bad value"))
+        )
+        with pytest.raises(TypeError):
+            register_plugins(client, [_entry("a")], fresh_session=True)
+        client.close_session.assert_not_called()
+        client.create_session.assert_not_called()
+
+    def test_a_failed_session_close_is_retried_once(self, client):
+        client.close_session.side_effect = [False, True]
+        register_plugins(client, [_entry("a")], fresh_session=True)
+        assert client.close_session.call_count == 2
+        client.create_session.assert_called_once()
+
+    def test_a_session_that_will_not_close_is_still_replaced(self, client):
+        client.close_session.return_value = False
+        result = register_plugins(client, [_entry("a")], fresh_session=True)
+        assert client.close_session.call_count == 2
+        client.create_session.assert_called_once()
+        assert result.loaded == ["a"]
+
     def test_keeps_the_session_by_default(self, client):
         register_plugins(client, [_entry("a")])
         client.close_session.assert_not_called()
