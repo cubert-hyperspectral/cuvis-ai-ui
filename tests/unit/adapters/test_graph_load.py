@@ -202,6 +202,43 @@ def test_plugin_check_is_skipped_without_known_plugins(graph):
     assert serializer.last_load_warnings == []
 
 
+def test_to_config_keeps_plugin_of_node_the_registry_no_longer_knows(graph):
+    """A folder switch clears the shared registry before the kept pipeline is
+    saved; the node's own stored plugin name still attributes it correctly."""
+    infos = [_info("p.Src", outputs=["out"])]
+    config = _config([("a", "p.Src")], [])
+    serializer = _load(graph, infos, config)
+
+    # Simulate the registry losing the plugin's classes, as a folder switch does.
+    serializer.node_registry.clear()
+
+    saved = serializer.to_config(graph)
+    assert saved["plugins"] == ["p"]
+
+
+def test_to_config_keeps_declared_plugin_for_a_placeholder_node(graph):
+    """A pipeline that declares a plugin whose class is unknown at load time
+    (a placeholder) keeps that plugin in a later save, even though no node
+    can be attributed to it."""
+    config = _config([("ghost", "missing.pkg.Ghost")], [], plugins=("q",))
+    serializer = _load(graph, [], config)
+
+    saved = serializer.to_config(graph)
+    assert saved["plugins"] == ["q"]
+
+
+def test_to_config_drops_a_declared_plugin_with_no_remaining_node(graph):
+    """A pipeline whose nodes are all attributable lists only the derived
+    plugins; a declared plugin with no node left in the graph is dropped,
+    same as before this node-owner tracking was added."""
+    infos = [_info("p.Src", outputs=["out"])]
+    config = _config([("a", "p.Src")], [], plugins=("p", "q"))
+    serializer = _load(graph, infos, config)
+
+    saved = serializer.to_config(graph)
+    assert saved["plugins"] == ["p"]
+
+
 def test_register_with_graph_replaces_a_changed_node_type(graph):
     registry = NodeRegistry()
     registry.register_nodes([_info("p.Node", inputs=["old"])])

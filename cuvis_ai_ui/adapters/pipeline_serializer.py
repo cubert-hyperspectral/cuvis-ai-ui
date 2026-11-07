@@ -73,6 +73,14 @@ class PipelineSerializer:
         self.node_registry = node_registry
         self.known_plugins: set[str] | None = None
         """Names of the registered plugins; when set, a pipeline's ``plugins:`` is checked."""
+        self.loaded_plugins: list[str] = []
+        """The ``plugins:`` block of the pipeline last loaded with :meth:`from_config`.
+
+        A later :meth:`to_config` on the same (possibly edited) graph keeps any of
+        these whose class the current registry can no longer attribute, so a
+        plugin declared by the loaded pipeline is never dropped just because the
+        registry's plugin set changed since the load (a folder switch, for one).
+        """
         self.last_load_warnings: list[str] = []
         self.last_missing_connections: list[str] = []
         """YAML connections the last load could not draw, as ``source -> target``."""
@@ -139,6 +147,7 @@ class PipelineSerializer:
         self._load_failed_connections = 0
         self._load_inferred_port_classes = set()
         self._placeholder_class_cache = {}
+        self.loaded_plugins = []
 
         # Validate configuration with Pydantic
         try:
@@ -146,6 +155,8 @@ class PipelineSerializer:
         except Exception as e:
             logger.error(f"Pipeline configuration validation failed: {e}")
             raise ValueError(f"Invalid pipeline configuration: {e}") from e
+
+        self.loaded_plugins = list(pipeline_config.plugins or [])
 
         # Note: Connection validation is done during graph construction
         # cuvis-ai-schemas PipelineConfig doesn't have validate_connections_reference_nodes()
@@ -659,32 +670,45 @@ class PipelineSerializer:
         config = self.to_config(graph, metadata)
         return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
-    def _collect_pipeline_plugins(self, nodes_list: list[NodeConfig]) -> list[str] | None:
+    def _collect_pipeline_plugins(
+        self, graph_nodes: list[Any], nodes_list: list[NodeConfig]
+    ) -> list[str] | None:
         """Derive the bare plugin-name set the pipeline depends on.
 
         Looks up each node's class_name in the node registry and collects the
-        non-empty ``plugin_name`` of its owning plugin. Classes the registry
-        doesn't know (placeholders for unloaded plugins) are recorded as a load
-        warning rather than dropped silently.
+        non-empty ``plugin_name`` of its owning plugin. The registry can lose
+        track of a class between load and save (a folder switch clears and
+        re-registers the shared registry while the graph itself is kept), so a
+        node whose class the registry no longer knows falls back to the plugin
+        name it stored when it was created (``cuvis_plugin_name``). A node with
+        neither — a placeholder for a class unknown even at load time — can't be
+        attributed at all; it's recorded as a load warning, and the plugins the
+        pipeline declared when it was loaded (:attr:`loaded_plugins`) are kept
+        instead so nothing declared is silently lost.
 
         Args:
+            graph_nodes: The live graph nodes, in the same order as nodes_list.
             nodes_list: Validated node configs from the graph.
 
         Returns:
             Sorted unique plugin names, or ``None`` when no plugin nodes are
-            present (so the field is omitted from the emitted yaml).
+            present and nothing was declared at load (so the field is omitted
+            from the emitted yaml).
         """
         plugin_names: set[str] = set()
         unknown: list[str] = []
-        for node_cfg in nodes_list:
+        for node, node_cfg in zip(graph_nodes, nodes_list):
             info = self.node_registry.get_node_info(node_cfg.class_name)
-            if info is None:
-                unknown.append(node_cfg.class_name)
-                continue
-            plugin_name = info.get("plugin_name")
+            plugin_name = info.get("plugin_name") if info is not None else None
+            if not plugin_name:
+                owner = getattr(node, "cuvis_plugin_name", "")
+                plugin_name = owner if isinstance(owner, str) else ""
             if plugin_name:
                 plugin_names.add(plugin_name)
+            else:
+                unknown.append(node_cfg.class_name)
         if unknown:
+            plugin_names.update(self.loaded_plugins)
             self.last_load_warnings.append(
                 "Could not determine the owning plugin for: "
                 + ", ".join(sorted(set(unknown)))
@@ -738,7 +762,7 @@ class PipelineSerializer:
         # (populated by ListAvailableNodes): cuvis-ai node-lib classes resolve to
         # "cuvis_ai_builtin", core built-ins carry an empty plugin_name and need
         # no declaration. Unknown/placeholder classes can't be attributed.
-        plugins_list = self._collect_pipeline_plugins(nodes_list)
+        plugins_list = self._collect_pipeline_plugins(graph.all_nodes(), nodes_list)
 
         # Create validated PipelineConfig
         try:
