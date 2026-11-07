@@ -329,6 +329,29 @@ def test_save_as_outside_the_open_folder_clears_the_browser_selection(
     assert window.current_file == folder / "one.yaml"
 
 
+def test_a_folder_opened_by_a_relative_path_matches_save_as_paths(
+    window, folder, monkeypatch, answer
+):
+    """The CLI can pass a relative folder path; Save As always returns an
+    absolute one. The folder must be made absolute so a later Save As into
+    it is recognized and selected in the browser."""
+    answer(QMessageBox.StandardButton.Cancel)
+    monkeypatch.chdir(folder.parent)
+
+    assert window.open_folder(folder.name)
+    assert window.current_folder == folder.absolute()
+
+    new_path = folder.absolute() / "four.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+
+    window.save_pipeline_as()
+
+    assert new_path in window.pipeline_browser.pipelines
+    current_item = window.pipeline_browser.list_widget.currentItem()
+    assert current_item is not None
+    assert current_item.data(Qt.ItemDataRole.UserRole) == str(new_path)
+
+
 def test_new_pipeline_clears_the_properties_editor(window, folder, answer):
     editor = PropertyEditor()
     window.set_properties_widget(editor)

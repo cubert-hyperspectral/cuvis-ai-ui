@@ -598,7 +598,11 @@ class MainWindow(QMainWindow):
         if not path:
             return False
 
-        folder = Path(path)
+        # Absolute() (not resolve()) so a folder the CLI opened by a relative
+        # path (cuvis-ui pipelines) still compares equal to the absolute paths
+        # Save As returns. resolve() would also expand Windows 8.3 short
+        # names, which breaks comparisons against some tmp paths.
+        folder = Path(path).absolute()
         pipelines = list_pipelines(folder)
         target = Path(pipeline) if pipeline is not None else (pipelines[0] if pipelines else None)
         if target is not None and not self._confirm_discard():

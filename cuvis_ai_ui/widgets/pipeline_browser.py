@@ -79,7 +79,7 @@ class PipelineBrowser(QWidget):
         row = -1
         if path is not None:
             try:
-                row = self._pipelines.index(Path(path))
+                row = self._pipelines.index(Path(path).absolute())
             except ValueError:
                 row = -1
         self.list_widget.blockSignals(True)
