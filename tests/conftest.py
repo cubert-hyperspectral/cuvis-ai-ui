@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import Mock
+from PySide6.QtCore import QStandardPaths
 from PySide6.QtWidgets import QApplication
 
 from cuvis_ai_schemas.enums import NodeCategory, NodeTag
@@ -9,6 +10,12 @@ from cuvis_ai_schemas.grpc.conversions import node_category_to_proto, node_tag_t
 
 from cuvis_ai_ui.adapters import NodeRegistry
 from cuvis_ai_ui.grpc.client import CuvisAIClient
+
+# Every writable location Qt resolves during the test run must land under
+# Qt's test-mode folder, not the real per-user config directory. This has to
+# run before any QApplication (or any settings read) exists, so it sits at
+# import time rather than inside a fixture.
+QStandardPaths.setTestModeEnabled(True)
 
 
 @pytest.fixture(scope="session")
@@ -101,3 +108,24 @@ def temp_pipeline_file(tmp_path, sample_pipeline_config):
         yaml.dump(sample_pipeline_config, f)
 
     return file_path
+
+
+@pytest.fixture
+def write_plugin_manifest():
+    """Factory that writes a bare plugin manifest YAML to a directory.
+
+    Returns a callable ``write_plugin_manifest(directory, name, tag="v1")`` that
+    writes ``<directory>/<name>.yaml`` and returns its path.
+    """
+
+    def _write(directory, name, tag="v1"):
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{name}.yaml"
+        path.write_text(
+            f"name: {name}\nrepo: https://example.com/{name}.git\ntag: {tag}\n"
+            "capabilities:\n  - class_name: pkg.node.Node\n",
+            encoding="utf-8",
+        )
+        return path
+
+    return _write

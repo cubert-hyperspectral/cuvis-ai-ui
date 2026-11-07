@@ -8,6 +8,7 @@ This module provides dialogs and widgets for:
 - Managing plugin lifecycle
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ from ..grpc.client import CuvisAIClient
 from ..settings.plugins import (
     _resolve_local_path,
     build_manifest,
+    collect_plugin_entries,
+    is_bundled_plugin,
     load_plugin_entries,
     load_plugin_entries_from_directory,
     merge_plugin_entries,
@@ -71,16 +74,24 @@ class PluginManagerDialog(QDialog):
         self,
         client: CuvisAIClient,
         parent: QWidget | None = None,
+        extra_dirs: Iterable[str | Path] = (),
     ) -> None:
         """Initialize the dialog.
 
         Args:
             client: gRPC client for plugin operations
             parent: Parent widget
+            extra_dirs: Folders of plugin manifests the app registers with the
+                server alongside the saved plugin set (the app's own plugins
+                folder, ``--plugins-dir`` folders, a pipeline folder's
+                ``plugins/``). Their plugins show as read-only rows in the
+                status table; nothing about them is written to the store.
         """
         super().__init__(parent)
         self._client = client
+        self._extra_dirs = list(extra_dirs)
         self._plugin_entries: list[dict[str, Any]] = []
+        self._folder_only_names: set[str] = set()
         self._is_refreshing = False
 
         self.setWindowTitle("Plugin Manager")
@@ -444,12 +455,25 @@ class PluginManagerDialog(QDialog):
                 pass
 
     def _refresh_status(self) -> None:
-        """Refresh the loaded plugins status table."""
+        """Refresh the loaded plugins status table.
+
+        The table shows every plugin the app registers with the server:
+        the saved set (:func:`load_plugin_entries`, what ``Remove Selected``
+        and the load checkboxes act on) plus any plugin that only comes from
+        ``self._extra_dirs``. A row for a name the store does not have is a
+        folder row: it displays the manifest's folder or file as its source,
+        its checkbox is read-only, and it is never written to the store.
+        """
         self._is_refreshing = True
         self._status_table.blockSignals(True)
         self._status_table.setRowCount(0)
 
         self._plugin_entries = load_plugin_entries()
+        saved_names = {e.get("name") for e in self._plugin_entries}
+        table_entries = collect_plugin_entries(self._extra_dirs)
+        self._folder_only_names = {
+            e.get("name") for e in table_entries if e.get("name") not in saved_names
+        }
 
         loaded_node_counts: dict[str, int] = {}
         try:
@@ -464,14 +488,15 @@ class PluginManagerDialog(QDialog):
             logger.error(f"Failed to refresh plugin status: {e}")
             QMessageBox.warning(self, "Warning", f"Failed to refresh plugin status:\n{e}")
 
-        self._status_table.setRowCount(len(self._plugin_entries))
-        for row, entry in enumerate(self._plugin_entries):
+        self._status_table.setRowCount(len(table_entries))
+        for row, entry in enumerate(table_entries):
+            is_folder_row = entry.get("name") in self._folder_only_names
+
             load_item = QTableWidgetItem()
-            load_item.setFlags(
-                Qt.ItemFlag.ItemIsEnabled
-                | Qt.ItemFlag.ItemIsSelectable
-                | Qt.ItemFlag.ItemIsUserCheckable
-            )
+            load_flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            if not is_folder_row:
+                load_flags |= Qt.ItemFlag.ItemIsUserCheckable
+            load_item.setFlags(load_flags)
             load_item.setCheckState(
                 Qt.CheckState.Checked if entry.get("enabled", True) else Qt.CheckState.Unchecked
             )
@@ -499,7 +524,12 @@ class PluginManagerDialog(QDialog):
 
             capabilities = config.get("capabilities") if isinstance(config, dict) else None
             if isinstance(capabilities, list) and capabilities:
-                provided_text = str(len(capabilities))
+                node_capabilities = [
+                    c
+                    for c in capabilities
+                    if not (isinstance(c, dict) and c.get("kind") not in (None, "node"))
+                ]
+                provided_text = str(len(node_capabilities))
             elif entry.get("name") in loaded_node_counts:
                 provided_text = str(loaded_node_counts.get(entry.get("name"), 0))
             else:
@@ -535,7 +565,14 @@ class PluginManagerDialog(QDialog):
             save_plugin_entries(self._plugin_entries)
 
     def _remove_selected_plugins(self) -> None:
-        """Remove selected plugins from persistence."""
+        """Remove selected plugins from persistence.
+
+        A bundled plugin cannot be removed: it is rebuilt from the catalog on
+        every load, so dropping it from the store only brings it back enabled
+        next time. Selecting a bundled plugin disables it instead; a
+        user-added plugin is removed as before. A folder row (its name is not
+        in the saved set) is skipped: nothing about it is ever in the store.
+        """
         rows = {item.row() for item in self._status_table.selectedItems()}
         if not rows:
             return
@@ -552,15 +589,21 @@ class PluginManagerDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "Remove Plugins",
-            "Remove selected plugins from the persistent list?",
+            "Remove selected plugins from the persistent list? "
+            "Bundled plugins are disabled instead of removed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        self._plugin_entries = [
-            entry for entry in self._plugin_entries if entry.get("name") not in names
-        ]
+        selected = set(names)
+        updated = []
+        for entry in self._plugin_entries:
+            if entry.get("name") not in selected:
+                updated.append(entry)
+            elif is_bundled_plugin(entry):
+                updated.append({**entry, "enabled": False})
+        self._plugin_entries = updated
         save_plugin_entries(self._plugin_entries)
         self._refresh_status()
 

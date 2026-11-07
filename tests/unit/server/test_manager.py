@@ -1,11 +1,23 @@
 """Tests for server manager module."""
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 
-from cuvis_ai_ui.server.manager import ServerManager, _find_server_executable
+import socket
+
+import cuvis_ai_ui.server.manager as manager_module
+from cuvis_ai_ui.server.manager import (
+    SERVER_MODULE,
+    ServerManager,
+    _find_server_executable,
+    _server_env,
+    is_listening,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -13,36 +25,112 @@ from cuvis_ai_ui.server.manager import ServerManager, _find_server_executable
 # ---------------------------------------------------------------------------
 
 
-@patch("cuvis_ai_ui.server.manager.sys")
-def test_find_server_executable_frozen(mock_sys):
-    """Test finding server executable in frozen (PyInstaller) build."""
-    mock_sys.frozen = True
-    mock_sys.executable = "C:/app/cuvis-ui.exe"
-    mock_sys.platform = "win32"
-
-    with patch.object(Path, "exists", return_value=True):
-        cmd = _find_server_executable()
-        assert "cuvis-server.exe" in cmd[0]
+@pytest.fixture(autouse=True)
+def data_dir(tmp_path, monkeypatch):
+    """Per-user data folder in tmp, so no test touches the real one."""
+    path = tmp_path / "data"
+    monkeypatch.setattr(manager_module, "user_data_dir", lambda: path)
+    return path
 
 
-@patch("cuvis_ai_ui.server.manager.sys")
-def test_find_server_executable_frozen_fallback(mock_sys):
-    """Test fallback when server exe not found in frozen build."""
-    mock_sys.frozen = True
-    mock_sys.executable = "C:/app/cuvis-ui.exe"
-
-    with patch.object(Path, "exists", return_value=False):
-        cmd = _find_server_executable()
-        assert cmd == ["cuvis-server"]
+@pytest.fixture
+def sibling_venv(tmp_path, monkeypatch):
+    path = tmp_path / "core" / ".venv"
+    monkeypatch.setattr(manager_module, "_sibling_core_venv", lambda: path)
+    return path
 
 
-def test_find_server_executable_dev_mode_fallback():
-    """Test fallback to current Python in dev mode."""
-    # In dev mode, if cuvis-ai-core venv doesn't exist, falls back to sys.executable
-    cmd = _find_server_executable()
-    assert len(cmd) >= 1
-    # Either finds core venv or falls back to sys.executable
-    assert cmd[-1] == "cuvis_ai_core.grpc.production_server" or "python" in cmd[0].lower()
+@pytest.fixture
+def core_importable(monkeypatch):
+    def set_importable(importable):
+        spec = object() if importable else None
+        monkeypatch.setattr(manager_module.importlib.util, "find_spec", lambda name: spec)
+
+    return set_importable
+
+
+def _python_in(venv):
+    python = venv / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    return python
+
+
+def test_find_prefers_the_per_user_server_venv(data_dir, sibling_venv):
+    python = _python_in(data_dir / "server-venv")
+    _python_in(sibling_venv)
+    assert _find_server_executable() == [str(python), "-m", SERVER_MODULE]
+
+
+def test_find_falls_back_to_the_sibling_core_venv(sibling_venv):
+    python = _python_in(sibling_venv)
+    assert _find_server_executable() == [str(python), "-m", SERVER_MODULE]
+
+
+def test_find_uses_this_interpreter_when_it_imports_core(sibling_venv, core_importable):
+    core_importable(True)
+    assert _find_server_executable() == [sys.executable, "-m", SERVER_MODULE]
+
+
+def test_find_returns_none_without_a_server_runtime(sibling_venv, core_importable):
+    core_importable(False)
+    assert _find_server_executable() is None
+
+
+def test_frozen_build_only_uses_the_server_venv(sibling_venv, core_importable, monkeypatch):
+    monkeypatch.setattr(manager_module.sys, "frozen", True, raising=False)
+    _python_in(sibling_venv)
+    core_importable(True)
+    assert _find_server_executable() is None
+
+
+def test_frozen_build_puts_bundled_tools_on_path(tmp_path, monkeypatch):
+    app = tmp_path / "app"
+    for tool in ("ffmpeg", "graphviz"):
+        (app / tool / "bin").mkdir(parents=True)
+    monkeypatch.setattr(manager_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(manager_module.sys, "executable", str(app / "cuvis-ui.exe"))
+    existing = str(tmp_path / "existing")
+    monkeypatch.setenv("PATH", existing)
+
+    env = _server_env(50052)
+
+    assert env["GRPC_PORT"] == "50052"
+    assert env["PATH"].split(os.pathsep) == [
+        str(app / "ffmpeg" / "bin"),
+        str(app / "graphviz" / "bin"),
+        existing,
+    ]
+
+
+def test_dev_run_keeps_path(monkeypatch):
+    monkeypatch.setenv("PATH", "C:/existing")
+    assert _server_env(50051)["PATH"] == "C:/existing"
+
+
+# ---------------------------------------------------------------------------
+# is_listening
+# ---------------------------------------------------------------------------
+
+
+def test_is_listening_true_against_a_real_listening_socket():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("localhost", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    try:
+        assert is_listening("localhost", port)
+    finally:
+        server.close()
+
+
+def test_is_listening_false_against_a_closed_port():
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("localhost", 0))
+    port = probe.getsockname()[1]
+    probe.close()  # Nothing listens on this port once we release it.
+
+    assert not is_listening("localhost", port, timeout=0.2)
 
 
 # ---------------------------------------------------------------------------
@@ -149,39 +237,75 @@ def test_start_handles_file_not_found(mock_find_exe, mock_popen):
     assert manager._process is None
 
 
-# ---------------------------------------------------------------------------
-# ServerManager.get_output
-# ---------------------------------------------------------------------------
-
-
-def test_get_output_no_process():
-    """Test get_output returns empty string when no process."""
+@patch("cuvis_ai_ui.server.manager._find_server_executable", return_value=None)
+def test_start_without_a_server_runtime_explains(mock_find_exe):
     manager = ServerManager()
-    assert manager.get_output() == ""
+    manager.start()
+    assert manager.process is None
+    assert "No cuvis-ai-core server found" in manager.last_error
 
 
-def test_get_output_no_stdout():
-    """Test get_output returns empty string when stdout is None."""
+@patch("cuvis_ai_ui.server.manager.subprocess.Popen")
+@patch("cuvis_ai_ui.server.manager._find_server_executable")
+def test_start_handles_a_log_that_cannot_be_opened(mock_find_exe, mock_popen, data_dir):
+    mock_find_exe.return_value = ["python", "-m", SERVER_MODULE]
+
     manager = ServerManager()
-    mock_process = Mock()
-    mock_process.stdout = None
-    manager._process = mock_process
+    data_dir.mkdir(parents=True)
+    # A directory where the log file should be makes the open() call fail.
+    manager.log_path.mkdir()
 
-    assert manager.get_output() == ""
+    manager.start()
+
+    mock_popen.assert_not_called()
+    assert manager.process is None
+    assert manager.is_running() is False
+    assert str(manager.log_path) in manager.last_error
 
 
-def test_get_output_exited_process():
-    """Test get_output reads remaining output from exited process."""
+@patch("cuvis_ai_ui.server.manager.subprocess.Popen")
+@patch("cuvis_ai_ui.server.manager._find_server_executable")
+def test_start_sends_server_output_to_the_log(mock_find_exe, mock_popen, data_dir):
+    mock_find_exe.return_value = ["python", "-m", SERVER_MODULE]
+    mock_popen.return_value = Mock(pid=1, poll=Mock(return_value=None))
+
     manager = ServerManager()
-    mock_process = Mock()
-    mock_process.poll.return_value = 1  # Exited
-    mock_process.stdout = Mock()
-    mock_process.stdout.fileno.side_effect = OSError("bad fd")
-    mock_process.stdout.read.return_value = b"Server output"
-    manager._process = mock_process
+    manager.start()
 
-    output = manager.get_output()
-    assert output == "Server output"
+    kwargs = mock_popen.call_args.kwargs
+    assert kwargs["stdout"] is not subprocess.PIPE
+    assert Path(kwargs["stdout"].name) == data_dir / "server.log"
+    assert kwargs["stderr"] is subprocess.STDOUT
+    assert manager.log_path == data_dir / "server.log"
+    assert "server start" in manager.log_path.read_text(encoding="utf-8")
+
+
+@patch("cuvis_ai_ui.server.manager._find_server_executable")
+def test_a_chatty_server_never_blocks_on_its_output(mock_find_exe):
+    mock_find_exe.return_value = [
+        sys.executable,
+        "-c",
+        "import sys; sys.stdout.write('x' * 1_000_000 + chr(10) + 'last line' + chr(10))",
+    ]
+    manager = ServerManager()
+    manager.start()
+
+    assert manager.process.wait(timeout=30) == 0
+    assert manager.log_tail(max_lines=1) == "last line"
+
+
+def test_log_tail_only_shows_this_run(data_dir):
+    manager = ServerManager()
+    data_dir.mkdir()
+    manager.log_path.write_bytes(b"old run\n")
+    manager._log_offset = manager.log_path.stat().st_size
+    with open(manager.log_path, "ab") as log:
+        log.write(b"crash output\n")
+    assert manager.log_tail() == "crash output"
+
+
+def test_log_tail_without_a_log():
+    assert ServerManager().log_tail() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -224,10 +348,9 @@ def test_wait_ready_process_exits(mock_monotonic):
     manager = ServerManager()
     mock_process = Mock()
     mock_process.poll.return_value = 1  # Exited
-    mock_process.stdout = Mock()
-    mock_process.stdout.fileno.side_effect = OSError()
-    mock_process.stdout.read.return_value = b"crash output"
     manager._process = mock_process
+    manager.log_path.parent.mkdir(parents=True)
+    manager.log_path.write_bytes(b"crash output\n")
 
     result = manager.wait_ready(timeout=5.0)
     assert not result
@@ -314,3 +437,33 @@ def test_stop_kills_on_timeout():
     mock_process.terminate.assert_called_once()
     mock_process.kill.assert_called_once()
     assert manager._process is None
+
+
+class _FullDiskLog:
+    """A log file whose writes fail as on a full disk."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def write(self, data):
+        raise OSError(28, "No space left on device")
+
+    def close(self):
+        pass
+
+
+@patch("cuvis_ai_ui.server.manager.subprocess.Popen")
+@patch("cuvis_ai_ui.server.manager._find_server_executable")
+def test_start_handles_a_log_that_cannot_be_written(mock_find_exe, mock_popen, data_dir):
+    mock_find_exe.return_value = ["python", "-m", SERVER_MODULE]
+    manager = ServerManager()
+
+    with patch("cuvis_ai_ui.server.manager.open", create=True, return_value=_FullDiskLog()):
+        manager.start()
+
+    mock_popen.assert_not_called()
+    assert manager.process is None
+    assert "No space left on device" in manager.last_error

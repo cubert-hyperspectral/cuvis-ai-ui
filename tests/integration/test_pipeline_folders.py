@@ -1,0 +1,490 @@
+"""Pipeline folders in the main window: browsing, plugin hook-up, unsaved changes."""
+
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+from cuvis_ai_ui.grpc.client import CuvisAIClient
+from cuvis_ai_ui.main_window import MainWindow
+from cuvis_ai_ui.widgets.property_editor import PropertyEditor
+
+PIPELINE = """metadata:
+  name: {name}
+plugins: [p]
+nodes:
+  - name: a
+    class_name: p.Src
+    hparams: {{}}
+connections: []
+"""
+
+
+@pytest.fixture
+def folder(tmp_path):
+    for name in ("one", "two", "three"):
+        (tmp_path / f"{name}.yaml").write_text(PIPELINE.format(name=name), encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture
+def answer(monkeypatch):
+    """Stub the unsaved-changes question; returns the list of questions asked."""
+    asked = []
+
+    def set_answer(button):
+        def question(*args, **kwargs):
+            asked.append(args[2])
+            return button
+
+        monkeypatch.setattr(QMessageBox, "question", question)
+        return asked
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    return set_answer
+
+
+@pytest.fixture
+def window(qtbot, answer):
+    answer(QMessageBox.StandardButton.Cancel)
+    win = MainWindow()
+    qtbot.addWidget(win)
+    yield win
+    win._unsaved_changes = False
+
+
+def _edit(window):
+    node = window.graph.all_nodes()[0]
+    node.set_pos(500, 500)
+
+
+def test_open_folder_lists_it_and_opens_the_first_pipeline(window, folder):
+    assert window.open_folder(folder)
+    assert window.current_folder == folder
+    assert window.current_file == folder / "one.yaml"
+    assert window.pipeline_browser.pipelines == [
+        folder / "one.yaml",
+        folder / "three.yaml",
+        folder / "two.yaml",
+    ]
+    assert window.pipeline_browser.list_widget.currentRow() == 0
+    assert not window._pipelines_dock.isHidden()
+
+
+def test_folder_changed_fires_before_the_pipeline_loads(window, folder):
+    seen = []
+    window.folder_changed.connect(lambda f: seen.append((f, window.current_file)))
+    window.open_folder(folder, pipeline=folder / "two.yaml")
+    assert seen == [(folder, None)]
+    assert window.current_file == folder / "two.yaml"
+
+
+def test_a_graph_edit_marks_the_pipeline_unsaved(window, folder):
+    window.open_folder(folder)
+    assert not window.windowTitle().startswith("*")
+    _edit(window)
+    assert window.windowTitle().startswith("*")
+
+
+def test_browser_selection_keeps_edits_on_cancel(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    asked = answer(QMessageBox.StandardButton.Cancel)
+
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    assert len(asked) == 1
+    assert window.current_file == folder / "one.yaml"
+    assert window.pipeline_browser.list_widget.currentRow() == 0
+
+
+def test_browser_selection_opens_after_discard(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(QMessageBox.StandardButton.Discard)
+
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    assert window.current_file == folder / "two.yaml"
+    assert not window.windowTitle().startswith("*")
+
+
+def test_open_folder_asks_once_before_replacing_edits(window, folder, tmp_path_factory, answer):
+    window.open_folder(folder)
+    _edit(window)
+    asked = answer(QMessageBox.StandardButton.Discard)
+    other = tmp_path_factory.mktemp("other")
+    (other / "x.yaml").write_text(PIPELINE.format(name="x"), encoding="utf-8")
+
+    assert window.open_folder(other)
+
+    assert len(asked) == 1
+    assert window.current_file == other / "x.yaml"
+
+
+def test_open_folder_cancel_keeps_the_old_folder(window, folder, tmp_path_factory, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(QMessageBox.StandardButton.Cancel)
+    other = tmp_path_factory.mktemp("other")
+    (other / "x.yaml").write_text(PIPELINE.format(name="x"), encoding="utf-8")
+
+    assert not window.open_folder(other)
+    assert window.current_folder == folder
+    assert window.pipeline_browser.folder == folder
+
+
+def test_an_empty_folder_leaves_the_graph_alone(window, folder, tmp_path_factory, answer):
+    window.open_folder(folder)
+    _edit(window)
+    asked = answer(QMessageBox.StandardButton.Cancel)
+
+    assert window.open_folder(tmp_path_factory.mktemp("empty"))
+
+    assert asked == []
+    assert window.current_file == folder / "one.yaml"
+
+
+def test_unknown_plugins_warn_once_known_plugins_are_set(window, folder):
+    window.set_known_plugins({"other"})
+    window.open_folder(folder)
+    assert any("Plugins not available: p" in w for w in window._serializer.last_load_warnings)
+
+
+def test_cancelled_close_keeps_the_connection(window, folder, answer):
+    client = Mock(spec=CuvisAIClient)
+    window._client = client
+    window.open_folder(folder)
+    _edit(window)
+    answer(QMessageBox.StandardButton.Cancel)
+
+    assert not window.close()
+    client.disconnect.assert_not_called()
+    window._client = None
+
+
+def test_close_disconnects_the_client(window):
+    client = Mock(spec=CuvisAIClient)
+    window._client = client
+
+    assert window.close()
+    client.disconnect.assert_called_once()
+    window._client = None
+
+
+def test_property_edit_marks_the_pipeline_unsaved(window, tmp_path, answer):
+    with_hparam = """metadata:
+  name: {name}
+plugins: [p]
+nodes:
+  - name: a
+    class_name: p.Src
+    hparams: {{count: 1}}
+connections: []
+"""
+    for name in ("one", "two", "three"):
+        (tmp_path / f"{name}.yaml").write_text(with_hparam.format(name=name), encoding="utf-8")
+
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.open_folder(tmp_path)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+
+    count_widget = editor._widgets["count"]
+    count_widget.setValue(count_widget.value() + 1)
+
+    assert window.windowTitle().startswith("*")
+
+    asked = answer(QMessageBox.StandardButton.Cancel)
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    assert len(asked) == 1
+    assert window.current_file == tmp_path / "one.yaml"
+
+
+def test_save_as_a_new_file_in_the_folder_shows_it_selected(window, folder, monkeypatch):
+    window.open_folder(folder)
+    new_path = folder / "four.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+
+    window.save_pipeline_as()
+
+    assert window.pipeline_browser.pipelines == [
+        folder / "four.yaml",
+        folder / "one.yaml",
+        folder / "three.yaml",
+        folder / "two.yaml",
+    ]
+    current_item = window.pipeline_browser.list_widget.currentItem()
+    assert current_item.data(Qt.ItemDataRole.UserRole) == str(new_path)
+
+
+def test_save_as_onto_an_existing_listed_file_selects_that_row(window, folder, monkeypatch):
+    window.open_folder(folder)
+    target = folder / "two.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+
+    window.save_pipeline_as()
+
+    assert window.current_file == target
+    assert (
+        window.pipeline_browser.list_widget.currentRow()
+        == window.pipeline_browser.pipelines.index(target)
+    )
+
+
+def test_clicking_the_original_row_after_save_as_opens_it_again(window, folder, monkeypatch):
+    window.open_folder(folder)
+    original = window.current_file
+    new_path = folder / "four.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+    window.save_pipeline_as()
+
+    original_row = window.pipeline_browser.pipelines.index(original)
+    window.pipeline_browser.list_widget.setCurrentRow(original_row)
+
+    assert window.current_file == original
+
+
+def test_select_all_does_not_mark_the_pipeline_unsaved(window, tmp_path):
+    two_nodes = """metadata:
+  name: pair
+plugins: [p]
+nodes:
+  - name: a
+    class_name: p.Src
+    hparams: {}
+  - name: b
+    class_name: p.Src
+    hparams: {}
+connections: []
+"""
+    (tmp_path / "pair.yaml").write_text(two_nodes, encoding="utf-8")
+    window.open_folder(tmp_path)
+
+    window._select_all()
+
+    assert all(node.selected() for node in window.graph.all_nodes())
+    assert not window.windowTitle().startswith("*")
+
+
+def test_opening_a_pipeline_frames_it(window, folder, qtbot):
+    spy = Mock(wraps=window.graph.fit_to_selection)
+    window.graph.fit_to_selection = spy
+
+    window.open_folder(folder)
+
+    qtbot.waitUntil(lambda: spy.called, timeout=1000)
+    assert not any(node.selected() for node in window.graph.all_nodes())
+    assert not window.windowTitle().startswith("*")
+
+
+def test_opening_another_pipeline_clears_the_properties_editor(window, folder):
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.node_selected.connect(editor.set_node)
+    window.open_folder(folder)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+    assert editor._current_node is node
+
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    assert editor._current_node is None
+    assert not window.windowTitle().startswith("*")
+
+
+def test_opening_a_single_file_pipeline_clears_the_properties_editor(window, folder):
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.node_selected.connect(editor.set_node)
+    window.open_pipeline(folder / "one.yaml", confirm=False)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+    assert editor._current_node is node
+
+    window.open_pipeline(folder / "two.yaml", confirm=False)
+
+    assert editor._current_node is None
+    assert not window.windowTitle().startswith("*")
+
+
+def test_save_as_outside_the_open_folder_clears_the_browser_selection(
+    window, folder, tmp_path_factory, monkeypatch
+):
+    window.open_folder(folder)
+    other = tmp_path_factory.mktemp("elsewhere")
+    new_path = other / "elsewhere.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+
+    window.save_pipeline_as()
+
+    assert window.pipeline_browser.list_widget.currentRow() == -1
+
+    original_row = window.pipeline_browser.pipelines.index(folder / "one.yaml")
+    window.pipeline_browser.list_widget.setCurrentRow(original_row)
+
+    assert window.current_file == folder / "one.yaml"
+
+
+def test_a_folder_opened_by_a_relative_path_matches_save_as_paths(
+    window, folder, monkeypatch, answer
+):
+    """The CLI can pass a relative folder path; Save As always returns an
+    absolute one. The folder must be made absolute so a later Save As into
+    it is recognized and selected in the browser."""
+    answer(QMessageBox.StandardButton.Cancel)
+    monkeypatch.chdir(folder.parent)
+
+    assert window.open_folder(folder.name)
+    assert window.current_folder == folder.absolute()
+
+    new_path = folder.absolute() / "four.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+
+    window.save_pipeline_as()
+
+    assert new_path in window.pipeline_browser.pipelines
+    current_item = window.pipeline_browser.list_widget.currentItem()
+    assert current_item is not None
+    assert current_item.data(Qt.ItemDataRole.UserRole) == str(new_path)
+
+
+def test_new_pipeline_clears_the_properties_editor(window, folder, answer):
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.node_selected.connect(editor.set_node)
+    window.open_folder(folder)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+    answer(QMessageBox.StandardButton.Discard)
+
+    window.new_pipeline()
+
+    assert editor._current_node is None
+
+
+def test_a_relative_pipeline_path_opens_as_an_absolute_one(window, folder, monkeypatch):
+    """cuvis-ui PATH hands over the folder and its first pipeline as typed; both
+    are made absolute so the open file compares equal to the browser's paths."""
+    monkeypatch.chdir(folder.parent)
+    relative = Path(folder.name)
+
+    assert window.open_folder(relative, relative / "two.yaml")
+
+    assert window.current_file == (folder / "two.yaml").absolute()
+    assert window.current_file.is_absolute()
+
+
+# Every way to replace the graph, against every answer to the unsaved-changes
+# question: Save saves first and goes on, Discard goes on, Cancel stays.
+
+Save = QMessageBox.StandardButton.Save
+Discard = QMessageBox.StandardButton.Discard
+Cancel = QMessageBox.StandardButton.Cancel
+
+
+def _spy_save(window):
+    spy = Mock(wraps=window.save_pipeline)
+    window.save_pipeline = spy
+    return spy
+
+
+def test_new_pipeline_save_answer_saves_then_clears(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+
+    window.new_pipeline()
+
+    saved.assert_called_once()
+    assert window.current_file is None
+    assert window.graph.all_nodes() == []
+    assert not window.windowTitle().startswith("*")
+
+
+def test_new_pipeline_cancel_keeps_the_graph(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Cancel)
+
+    window.new_pipeline()
+
+    assert window.current_file == folder / "one.yaml"
+    assert len(window.graph.all_nodes()) == 1
+    assert window.windowTitle().startswith("*")
+
+
+@pytest.mark.parametrize("button", [Save, Discard, Cancel])
+def test_open_pipeline_follows_the_answer(window, folder, answer, button):
+    window.open_folder(folder)
+    _edit(window)
+    answer(button)
+    saved = _spy_save(window)
+
+    opened = window.open_pipeline(folder / "two.yaml")
+
+    assert opened is (button != Cancel)
+    assert saved.call_count == (1 if button == Save else 0)
+    expected = folder / "two.yaml" if opened else folder / "one.yaml"
+    assert window.current_file == expected
+    assert window.windowTitle().startswith("*") is (not opened)
+
+
+def test_a_failed_save_keeps_the_open_pipeline(window, folder, answer, monkeypatch):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    monkeypatch.setattr(window._serializer, "to_yaml_file", Mock(side_effect=OSError("disk full")))
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: None)
+
+    assert not window.open_pipeline(folder / "two.yaml")
+    assert window.current_file == folder / "one.yaml"
+    assert window.windowTitle().startswith("*")
+
+
+def test_browser_selection_save_answer_saves_then_opens(window, folder, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    saved.assert_called_once()
+    assert window.current_file == folder / "two.yaml"
+    assert window.pipeline_browser.list_widget.currentRow() == 2
+
+
+def test_open_folder_save_answer_saves_then_switches(window, folder, tmp_path_factory, answer):
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+    other = tmp_path_factory.mktemp("other")
+    (other / "x.yaml").write_text(PIPELINE.format(name="x"), encoding="utf-8")
+
+    assert window.open_folder(other)
+
+    saved.assert_called_once()
+    assert window.current_folder == other
+    assert window.current_file == other / "x.yaml"
+
+
+def test_close_save_answer_saves_then_disconnects(window, folder, answer):
+    client = Mock(spec=CuvisAIClient)
+    window._client = client
+    window.open_folder(folder)
+    _edit(window)
+    answer(Save)
+    saved = _spy_save(window)
+
+    assert window.close()
+
+    saved.assert_called_once()
+    client.disconnect.assert_called_once()
+    window._client = None

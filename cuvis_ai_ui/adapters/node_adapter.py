@@ -4,6 +4,7 @@ This module provides CuvisNodeAdapter - a NodeGraphQt BaseNode subclass
 that wraps cuvis-ai node information for visual editing.
 """
 
+from collections.abc import Collection
 from typing import Any, ClassVar, TypedDict, cast
 
 from NodeGraphQt import BaseNode
@@ -69,8 +70,44 @@ def _parse_port_spec(spec_data: dict[str, Any] | PortSpec) -> tuple[str, PortSpe
         shape=_parse_shape(spec_data.get("shape", [])),
         description=spec_data.get("description", ""),
         optional=spec_data.get("optional", False),
+        variadic=spec_data.get("variadic", False),
     )
     return port_name, spec
+
+
+def _drop_stale_node_type(graph: Any, node_class: type[BaseNode]) -> None:
+    """Unregister an older class registered under ``node_class``'s node type.
+
+    NodeGraphQt refuses a second registration of the same type, so after the
+    plugin set changes (a newer manifest for the same class, a folder's own
+    plugins) the graph would keep creating nodes from the old class with its old
+    ports. Removing the stale entry lets the new class register in its place.
+    """
+    factory = getattr(graph, "node_factory", None)
+    nodes = getattr(factory, "nodes", None)
+    if not isinstance(nodes, dict):
+        return
+    node_type = node_class.type_
+    existing = nodes.get(node_type)
+    if existing is None or existing is node_class:
+        return
+    _unregister_node_type(graph, node_type)
+
+
+def _unregister_node_type(graph: Any, node_type: str) -> None:
+    """Remove ``node_type`` from the graph's node factory and its name index."""
+    factory = getattr(graph, "node_factory", None)
+    nodes = getattr(factory, "nodes", None)
+    if not isinstance(nodes, dict) or node_type not in nodes:
+        return
+    existing = nodes.pop(node_type)
+    names = getattr(factory, "names", None)
+    if isinstance(names, dict):
+        types = names.get(existing.NODE_NAME, [])
+        if node_type in types:
+            types.remove(node_type)
+        if not types:
+            names.pop(existing.NODE_NAME, None)
 
 
 def category_color(category: NodeCategory) -> tuple[int, int, int, int]:
@@ -325,6 +362,9 @@ class NodeRegistry:
         """Initialize the registry."""
         self._nodes: dict[str, NodeInfoDict] = {}
         self._node_classes: dict[str, type[BaseNode]] = {}
+        # Node types this registry put into a graph; kept across clear() so the
+        # next register_with_graph can remove the ones no longer in the catalog.
+        self._graph_types: set[str] = set()
 
     def register_node(self, node_info: NodeInfoDict) -> None:
         """Register a node type.
@@ -348,27 +388,84 @@ class NodeRegistry:
         for node_info in nodes:
             self.register_node(node_info)
 
-    def get_node_info(self, class_path: str) -> NodeInfoDict | None:
+    def resolve_class_path(
+        self, class_path: str, plugins: Collection[str] | None = None
+    ) -> str | None:
+        """Resolve a class path to a registered one, tolerating the defining module.
+
+        A pipeline saved by cuvis-ai names a plugin class by its defining
+        module (``pkg.node.module.Cls``), while the plugin manifest may list
+        the package export (``pkg.node.Cls``), and a hand-written pipeline may
+        give the bare class name. An exact registered path is returned first.
+        Otherwise the single registered path with the same last segment wins,
+        among the classes of ``plugins`` and the core built-ins when
+        ``plugins`` is given, and within the same top-level package for a
+        dotted path; anything else is ``None``. This registry holds every
+        catalog plugin while the server resolves a run against the pipeline's
+        declared plugins only, so a same-named class of another plugin must not
+        stand in for a missing one.
+
+        Args:
+            class_path: Full class import path, a defining-module path or a
+                bare class name.
+            plugins: The plugins the pipeline declares; ``None`` considers the
+                whole registry.
+
+        Returns:
+            The matching registered class path, or ``None``.
+        """
+        if class_path in self._nodes:
+            return class_path
+
+        last_segment = class_path.rsplit(".", 1)[-1]
+        candidates = [p for p in self._nodes if p.rsplit(".", 1)[-1] == last_segment]
+        if plugins is not None:
+            candidates = [
+                p
+                for p in candidates
+                if not self._nodes[p].get("plugin_name")
+                or self._nodes[p].get("plugin_name") in plugins
+            ]
+        if "." in class_path:
+            top_level = class_path.split(".", 1)[0]
+            candidates = [p for p in candidates if p.split(".", 1)[0] == top_level]
+        return candidates[0] if len(candidates) == 1 else None
+
+    def get_node_info(
+        self, class_path: str, plugins: Collection[str] | None = None
+    ) -> NodeInfoDict | None:
         """Get node info by class path.
 
         Args:
-            class_path: Full class import path
+            class_path: Full class import path, exact or a defining-module path
+                resolved via :meth:`resolve_class_path`.
+            plugins: Plugin scope for the fallback, see :meth:`resolve_class_path`.
 
         Returns:
             Node info dictionary or None
         """
-        return self._nodes.get(class_path)
+        resolved = self.resolve_class_path(class_path, plugins)
+        if resolved is None:
+            return None
+        return self._nodes.get(resolved)
 
-    def get_node_class(self, class_path: str) -> type[BaseNode] | None:
+    def get_node_class(
+        self, class_path: str, plugins: Collection[str] | None = None
+    ) -> type[BaseNode] | None:
         """Get NodeGraphQt node class by class path.
 
         Args:
-            class_path: Full class import path
+            class_path: Full class import path, exact or a defining-module path
+                resolved via :meth:`resolve_class_path`.
+            plugins: Plugin scope for the fallback, see :meth:`resolve_class_path`.
 
         Returns:
             Node class or None
         """
-        return self._node_classes.get(class_path)
+        resolved = self.resolve_class_path(class_path, plugins)
+        if resolved is None:
+            return None
+        return self._node_classes.get(resolved)
 
     def get_all_nodes(self) -> list[NodeInfoDict]:
         """Get all registered node infos.
@@ -422,6 +519,9 @@ class NodeRegistry:
         """Register all node classes with a NodeGraphQt graph.
 
         This must be called before nodes can be created via graph.create_node().
+        Node types an earlier call registered whose class is no longer in the
+        registry (a plugin gone after a folder switch or a Plugin Manager
+        change) are removed first, so the canvas cannot create them any more.
 
         Args:
             graph: NodeGraphQt NodeGraph instance
@@ -431,8 +531,17 @@ class NodeRegistry:
         """
         from loguru import logger
 
+        current = {node_class.type_ for node_class in self._node_classes.values()}
+        stale = self._graph_types - current
+        for node_type in stale:
+            _unregister_node_type(graph, node_type)
+        if stale and hasattr(graph, "viewer"):
+            graph.viewer().rebuild_tab_search()
+        self._graph_types = current
+
         count = 0
         for class_path, node_class in self._node_classes.items():
+            _drop_stale_node_type(graph, node_class)
             try:
                 graph.register_node(node_class)
                 count += 1

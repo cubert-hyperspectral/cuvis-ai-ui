@@ -42,19 +42,18 @@ RUNTIME_HOOK = Path(SPECPATH) / "rthook_torch_stub.py"
 datas = [
     # Application icon (referenced at runtime via Path(__file__).parent / resources / icons)
     (str(PACKAGE_DIR / "resources" / "icons" / "logo.png"), os.path.join("cuvis_ai_ui", "resources", "icons")),
-    # Plugin catalog (referenced as Path(__file__).parent.parent / cuvis_ai_catalog.yaml)
-    (str(PROJECT_ROOT / "cuvis_ai_catalog.yaml"), "."),
+    # Bundled plugin catalog (settings.plugins.get_catalog_dir: cuvis_ai_ui/catalog)
+    (str(PACKAGE_DIR / "catalog"), os.path.join("cuvis_ai_ui", "catalog")),
 ] + schemas_datas
 
 # --- Hidden imports ----------------------------------------------------------
 # PyInstaller cannot detect these because they are loaded dynamically or via
 # string-based imports.
 hiddenimports = [
-    # cuvis-ai-schemas submodules (local editable dependency)
+    # cuvis-ai-schemas submodules
     "cuvis_ai_schemas",
     "cuvis_ai_schemas.enums",
     "cuvis_ai_schemas.plugin",
-    "cuvis_ai_schemas.discovery",
     "cuvis_ai_schemas.extensions",
     "cuvis_ai_schemas.extensions.ui",
     "cuvis_ai_schemas.grpc",

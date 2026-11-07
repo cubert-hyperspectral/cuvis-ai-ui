@@ -40,7 +40,7 @@ dependencies = [
     "loguru>=0.7.3",
     "click>=8.3.1",
     "grpcio-tools>=1.80.0",
-    "cuvis-ai-schemas[proto]>=0.8.0",
+    "cuvis-ai-schemas[proto]>=0.14.4",
     # Required transitively by cuvis-ai-schemas (ports.py imports torch)
     "torch>=2.10.0",
 ]
@@ -87,7 +87,7 @@ cuvis-ui-test = "cuvis_ai_ui.main:test_connection"
 
 
 [tool.setuptools.package-data]
-cuvis_ai_ui = ["resources/icons/*"]
+cuvis_ai_ui = ["resources/icons/*", "catalog/*.yaml", "catalog/*.yml", "catalog/README.md"]
 
 [tool.setuptools.packages.find]
 where = ["."]

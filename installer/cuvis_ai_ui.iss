@@ -68,13 +68,14 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
 begin
-  if CurStep = ssPostInstall then
+  { A silent install never stops on this question; /SUPPRESSMSGBOXES answers No. }
+  if (CurStep = ssPostInstall) and not WizardSilent then
   begin
-    if MsgBox(
-      'Cuvis SDK is required for reading .cu3s / .cu3 hyperspectral cubes.' + #13#10 + #13#10 +
-      'It is NOT bundled with this installer. Without it, file readers will fail at runtime.' + #13#10 + #13#10 +
+    if SuppressibleMsgBox(
+      'Reading .cu3s / .cu3 hyperspectral cubes needs the Cuvis SDK (through the cuvis-ai-dataloader plugin).' + #13#10 + #13#10 +
+      'It is not bundled with this installer. Drawing and editing pipelines works without it.' + #13#10 + #13#10 +
       'Open the Cubert SDK download page now?',
-      mbConfirmation, MB_YESNO) = IDYES then
+      mbConfirmation, MB_YESNO, IDNO) = IDYES then
     begin
       ShellExec('open',
         'https://cloud.cubert-gmbh.de/s/qpxkyWkycrmBK9m',

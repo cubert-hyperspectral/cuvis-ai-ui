@@ -355,6 +355,210 @@ def test_node_registry_get_node_class_not_found(node_registry):
     assert node_registry.get_node_class("nonexistent.path") is None
 
 
+def test_resolve_class_path_exact_match(node_registry):
+    """An exact registered path resolves to itself."""
+    resolved = node_registry.resolve_class_path("cuvis_ai.node.normalization.MinMaxNormalizer")
+    assert resolved == "cuvis_ai.node.normalization.MinMaxNormalizer"
+
+
+def test_resolve_class_path_last_segment_fallback():
+    """A dotted path naming the defining module resolves to the registered
+    package export sharing its last segment."""
+    registry = NodeRegistry()
+    registry.register_node(
+        {
+            "class_name": "SAM3MaskPropagation",
+            "full_path": "cuvis_ai_sam3.node.SAM3MaskPropagation",
+            "source": "plugin",
+            "plugin_name": "sam3",
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+    )
+    resolved = registry.resolve_class_path(
+        "cuvis_ai_sam3.node.sam3_streaming_propagation.SAM3MaskPropagation"
+    )
+    assert resolved == "cuvis_ai_sam3.node.SAM3MaskPropagation"
+
+
+def test_resolve_class_path_ambiguous_resolved_by_top_level_package():
+    """Two classes sharing a last segment are disambiguated by top-level package."""
+    registry = NodeRegistry()
+    registry.register_nodes(
+        [
+            {
+                "class_name": "Detector",
+                "full_path": "cuvis_ai_detr.node.Detector",
+                "source": "plugin",
+                "plugin_name": "detr",
+                "input_specs": [],
+                "output_specs": [],
+                "category": 0,
+                "tags": [],
+                "icon_svg": b"",
+            },
+            {
+                "class_name": "Detector",
+                "full_path": "cuvis_ai_yolo.node.Detector",
+                "source": "plugin",
+                "plugin_name": "yolo",
+                "input_specs": [],
+                "output_specs": [],
+                "category": 0,
+                "tags": [],
+                "icon_svg": b"",
+            },
+        ]
+    )
+    resolved = registry.resolve_class_path("cuvis_ai_detr.node.detector_impl.Detector")
+    assert resolved == "cuvis_ai_detr.node.Detector"
+
+
+def test_resolve_class_path_ambiguous_unresolved_returns_none():
+    """Two classes sharing a last segment, neither matching the query's top-level
+    package, cannot be disambiguated."""
+    registry = NodeRegistry()
+    registry.register_nodes(
+        [
+            {
+                "class_name": "Detector",
+                "full_path": "cuvis_ai_detr.node.Detector",
+                "source": "plugin",
+                "plugin_name": "detr",
+                "input_specs": [],
+                "output_specs": [],
+                "category": 0,
+                "tags": [],
+                "icon_svg": b"",
+            },
+            {
+                "class_name": "Detector",
+                "full_path": "cuvis_ai_yolo.node.Detector",
+                "source": "plugin",
+                "plugin_name": "yolo",
+                "input_specs": [],
+                "output_specs": [],
+                "category": 0,
+                "tags": [],
+                "icon_svg": b"",
+            },
+        ]
+    )
+    resolved = registry.resolve_class_path("some_other_pkg.node.detector_impl.Detector")
+    assert resolved is None
+
+
+def test_resolve_class_path_does_not_borrow_a_class_from_another_package():
+    """A dotted path whose own package is not registered stays unresolved, even
+    when another package registers the only class of that name: borrowing it
+    would attribute the node to the wrong plugin."""
+    registry = NodeRegistry()
+    registry.register_node(
+        {
+            "class_name": "DiceLoss",
+            "full_path": "cuvis_ai_unet.node.losses.DiceLoss",
+            "source": "plugin",
+            "plugin_name": "unet",
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+    )
+    assert registry.resolve_class_path("cuvis_ai.node.losses.DiceLoss") is None
+    assert registry.resolve_class_path("DiceLoss") == "cuvis_ai_unet.node.losses.DiceLoss"
+
+
+def test_resolve_class_path_fallback_stays_within_the_given_plugins():
+    """With a plugin scope (the pipeline's declared plugins), the fallback only
+    considers classes of those plugins and core built-ins; an exact path still
+    resolves whatever plugin registered it."""
+
+    def info(path, plugin):
+        return {
+            "class_name": path.rsplit(".", 1)[-1],
+            "full_path": path,
+            "source": "plugin" if plugin else "builtin",
+            "plugin_name": plugin,
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+
+    registry = NodeRegistry()
+    registry.register_nodes(
+        [info("other_pkg.node.Transform", "other"), info("core.node.Builtin", "")]
+    )
+
+    assert registry.resolve_class_path("Transform", plugins={"wanted"}) is None
+    assert registry.resolve_class_path("Transform", plugins={"other"}) == (
+        "other_pkg.node.Transform"
+    )
+    assert registry.resolve_class_path("Builtin", plugins={"wanted"}) == "core.node.Builtin"
+    assert registry.resolve_class_path("other_pkg.node.Transform", plugins={"wanted"}) == (
+        "other_pkg.node.Transform"
+    )
+    assert registry.get_node_class("Transform", plugins={"wanted"}) is None
+    assert registry.get_node_info("Transform", plugins={"wanted"}) is None
+
+
+def test_resolve_class_path_not_found_returns_none(node_registry):
+    """A path with no last-segment match returns None."""
+    assert node_registry.resolve_class_path("nonexistent.path.Nope") is None
+
+
+def test_get_node_class_uses_last_segment_fallback():
+    """get_node_class resolves a defining-module path through resolve_class_path."""
+    registry = NodeRegistry()
+    registry.register_node(
+        {
+            "class_name": "SAM3MaskPropagation",
+            "full_path": "cuvis_ai_sam3.node.SAM3MaskPropagation",
+            "source": "plugin",
+            "plugin_name": "sam3",
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+    )
+    node_class = registry.get_node_class(
+        "cuvis_ai_sam3.node.sam3_streaming_propagation.SAM3MaskPropagation"
+    )
+    assert node_class is not None
+    assert issubclass(node_class, CuvisNodeAdapter)
+
+
+def test_get_node_info_uses_last_segment_fallback():
+    """get_node_info resolves a defining-module path through resolve_class_path."""
+    registry = NodeRegistry()
+    registry.register_node(
+        {
+            "class_name": "SAM3MaskPropagation",
+            "full_path": "cuvis_ai_sam3.node.SAM3MaskPropagation",
+            "source": "plugin",
+            "plugin_name": "sam3",
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+    )
+    info = registry.get_node_info(
+        "cuvis_ai_sam3.node.sam3_streaming_propagation.SAM3MaskPropagation"
+    )
+    assert info is not None
+    assert info["full_path"] == "cuvis_ai_sam3.node.SAM3MaskPropagation"
+
+
 def test_node_registry_get_all_nodes(node_registry):
     """Test getting all registered nodes."""
     all_nodes = node_registry.get_all_nodes()
@@ -706,3 +910,12 @@ def test_node_class_init_uses_class_attribute_node_info(qapp):
 
     assert instance_b.cuvis_class_name == "B"
     assert instance_b.cuvis_class_path == "x.B"
+
+
+def test_resolve_class_path_bare_class_name(node_registry):
+    """A bare class name resolves like the server does: by its unique last segment."""
+    assert (
+        node_registry.resolve_class_path("MinMaxNormalizer")
+        == "cuvis_ai.node.normalization.MinMaxNormalizer"
+    )
+    assert node_registry.resolve_class_path("Nope") is None

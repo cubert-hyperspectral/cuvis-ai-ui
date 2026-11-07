@@ -39,6 +39,21 @@ from .node_adapter import CuvisNodeAdapter, NodeRegistry
 from .port_helpers import create_input_port, create_output_port
 
 
+def _inferred_port_spec(is_input: bool) -> PortSpec:
+    """Spec for a port known only from the pipeline's connections.
+
+    Inferred inputs accept fan-in, so no edge of the yaml is dropped when two
+    sources feed the same port.
+    """
+    return PortSpec(
+        dtype="any",
+        shape=(),
+        description="(inferred from pipeline connections)",
+        optional=is_input,
+        variadic=is_input,
+    )
+
+
 class PipelineSerializer:
     """Bidirectional serializer between cuvis-ai YAML and NodeGraphQt.
 
@@ -56,10 +71,23 @@ class PipelineSerializer:
             node_registry: Registry of available cuvis-ai nodes
         """
         self.node_registry = node_registry
+        self.known_plugins: set[str] | None = None
+        """Names of the registered plugins; when set, a pipeline's ``plugins:`` is checked."""
+        self.loaded_plugins: list[str] = []
+        """The ``plugins:`` block of the pipeline last loaded with :meth:`from_config`.
+
+        A later :meth:`to_config` on the same (possibly edited) graph keeps any of
+        these whose class the current registry can no longer attribute, so a
+        plugin declared by the loaded pipeline is never dropped just because the
+        registry's plugin set changed since the load (a folder switch, for one).
+        """
         self.last_load_warnings: list[str] = []
+        self.last_missing_connections: list[str] = []
+        """YAML connections the last load could not draw, as ``source -> target``."""
         self._load_missing_nodes: set[str] = set()
         self._load_failed_nodes: list[str] = []
         self._load_failed_connections = 0
+        self._load_inferred_port_classes: set[str] = set()
         self._placeholder_class_cache: dict[str, type] = {}
 
     def from_yaml_file(self, path: str | Path, graph: NodeGraph) -> dict[str, Any]:
@@ -113,72 +141,102 @@ class PipelineSerializer:
         """
         # Reset load warnings
         self.last_load_warnings = []
+        self.last_missing_connections = []
         self._load_missing_nodes = set()
         self._load_failed_nodes = []
         self._load_failed_connections = 0
+        self._load_inferred_port_classes = set()
         self._placeholder_class_cache = {}
 
-        # Validate configuration with Pydantic
+        # Validate configuration with Pydantic. Do this before touching any
+        # state that belongs to the graph still on screen: a config that
+        # fails validation leaves that graph (and what it needs declared)
+        # untouched, so the caller's existing pipeline is still intact.
         try:
             pipeline_config = PipelineConfig.from_dict(config)
         except Exception as e:
             logger.error(f"Pipeline configuration validation failed: {e}")
             raise ValueError(f"Invalid pipeline configuration: {e}") from e
 
+        self.loaded_plugins = list(pipeline_config.plugins or [])
+
         # Note: Connection validation is done during graph construction
         # cuvis-ai-schemas PipelineConfig doesn't have validate_connections_reference_nodes()
+
+        if self.known_plugins is not None:
+            unknown = [p for p in pipeline_config.plugins or [] if p not in self.known_plugins]
+            if unknown:
+                self.last_load_warnings.append("Plugins not available: " + ", ".join(unknown))
 
         # Clear existing graph
         graph.clear_session()
 
-        # Pre-scan connections so placeholder nodes for unknown classes can
-        # still receive the ports they're connected to — preserves topology
-        # when a pipeline references a plugin node that isn't registered.
+        # Pre-scan connections for the port names each node is wired through.
+        # A placeholder for an unknown class shares one synthesized class across
+        # every instance of that class path (NodeGraphQt forbids a second
+        # registration of the same type), so its ports must be the union over
+        # all those instances. A known class whose manifest declares no ports
+        # gets its own node's ports only, so two spec-less instances wired
+        # through different connections don't leak ports into each other.
         name_to_class_path = {n.name: n.class_name for n in pipeline_config.nodes}
-        placeholder_input_ports: dict[str, set[str]] = {}
-        placeholder_output_ports: dict[str, set[str]] = {}
+        input_port_hints_by_node: dict[str, set[str]] = {}
+        output_port_hints_by_node: dict[str, set[str]] = {}
+        input_port_hints_by_class: dict[str, set[str]] = {}
+        output_port_hints_by_class: dict[str, set[str]] = {}
         for conn in pipeline_config.connections:
             src = self._parse_connection_string(conn.source)
             tgt = self._parse_connection_string(conn.target)
             if src and src[1] == "outputs":
+                output_port_hints_by_node.setdefault(src[0], set()).add(src[2])
                 cp = name_to_class_path.get(src[0])
                 if cp:
-                    placeholder_output_ports.setdefault(cp, set()).add(src[2])
+                    output_port_hints_by_class.setdefault(cp, set()).add(src[2])
             if tgt and tgt[1] == "inputs":
+                input_port_hints_by_node.setdefault(tgt[0], set()).add(tgt[2])
                 cp = name_to_class_path.get(tgt[0])
                 if cp:
-                    placeholder_input_ports.setdefault(cp, set()).add(tgt[2])
+                    input_port_hints_by_class.setdefault(cp, set()).add(tgt[2])
 
         # Create nodes
         node_map: dict[str, CuvisNodeAdapter] = {}
 
-        for i, node_config in enumerate(pipeline_config.nodes):
+        for node_config in pipeline_config.nodes:
             node_dict = {
                 "class_name": node_config.class_name,
                 "name": node_config.name,
                 "hparams": node_config.hparams,
             }
+            known_class = (
+                self.node_registry.get_node_class(node_config.class_name, self._plugin_scope())
+                is not None
+            )
+            if known_class:
+                input_hints = input_port_hints_by_node.get(node_config.name)
+                output_hints = output_port_hints_by_node.get(node_config.name)
+            else:
+                input_hints = input_port_hints_by_class.get(node_config.class_name)
+                output_hints = output_port_hints_by_class.get(node_config.class_name)
             node = self._create_node(
                 node_dict,
                 graph,
-                input_port_hints=placeholder_input_ports.get(node_config.class_name),
-                output_port_hints=placeholder_output_ports.get(node_config.class_name),
+                input_port_hints=input_hints,
+                output_port_hints=output_hints,
             )
             if node:
                 node_map[node.name()] = node
-                # Position nodes in a grid layout initially
-                row = i // 4
-                col = i % 4
-                node.set_pos(col * 250, row * 150)
 
-        # Create connections
+        # Create connections, then compare what the graph shows with the YAML:
+        # a connect call can succeed and still drop an earlier edge (a second
+        # source on a single-connection input replaces the first).
         for conn_config in pipeline_config.connections:
-            connection = [conn_config.source, conn_config.target]
-            if not self._create_connection(connection, node_map, graph):
-                self._load_failed_connections += 1
+            self._create_connection([conn_config.source, conn_config.target], node_map, graph)
+        self.last_missing_connections = self._missing_connections(
+            pipeline_config.connections, node_map
+        )
+        self._load_failed_connections = len(self.last_missing_connections)
 
-        # Auto-layout if more than a few nodes
-        if len(node_map) > 2:
+        # Auto-layout positions every loaded node, spaced by its own size.
+        if node_map:
             self._auto_layout(graph)
 
         if self._load_missing_nodes:
@@ -189,9 +247,19 @@ class PipelineSerializer:
         if self._load_failed_nodes:
             failed = ", ".join(self._load_failed_nodes)
             self.last_load_warnings.append("Failed to create nodes: " + failed)
-        if self._load_failed_connections:
+        if self.last_missing_connections:
+            shown = self.last_missing_connections[:5]
+            more = len(self.last_missing_connections) - len(shown)
             self.last_load_warnings.append(
-                f"{self._load_failed_connections} connection(s) could not be created."
+                f"{len(self.last_missing_connections)} connection(s) could not be drawn: "
+                + ", ".join(shown)
+                + (f" and {more} more" if more else "")
+            )
+        if self._load_inferred_port_classes:
+            names = sorted(c.rsplit(".", 1)[-1] for c in self._load_inferred_port_classes)
+            self.last_load_warnings.append(
+                "Ports taken from connections (the plugin manifest declares none): "
+                + ", ".join(names)
             )
 
         logger.info(
@@ -228,8 +296,15 @@ class PipelineSerializer:
         hparams = node_config.get("hparams", {})
         execution_stages = node_config.get("execution_stages", ["always"])
 
-        # Get the node class from registry
-        node_class = self.node_registry.get_node_class(class_path)
+        # Get the node class from registry. resolve_class_path tolerates a
+        # class_path naming the defining module (cuvis-ai's own save format)
+        # while the registry holds the plugin manifest's package export; the
+        # registered path can then differ from the yaml's own string. The
+        # fallback only looks at the pipeline's declared plugins.
+        scope = self._plugin_scope()
+        resolved_class_path = self.node_registry.resolve_class_path(class_path, scope)
+        node_class = self.node_registry.get_node_class(class_path, scope)
+        known_class = node_class is not None
 
         if node_class is None:
             logger.warning(f"Unknown node class: {class_path}")
@@ -260,11 +335,25 @@ class PipelineSerializer:
             node = graph.create_node(node_type)
             node.set_name(node_name)
 
+            # A node resolved by last-segment fallback keeps the yaml's own
+            # class_name, so a load-then-save round trip writes the pipeline
+            # back unchanged instead of normalizing it to the registered path.
+            if (
+                known_class
+                and resolved_class_path is not None
+                and resolved_class_path != class_path
+                and hasattr(node, "_cuvis_class_path")
+            ):
+                node._cuvis_class_path = class_path
+
             # Set cuvis-specific attributes
             if hasattr(node, "cuvis_hparams"):
                 node.cuvis_hparams = hparams
             if hasattr(node, "cuvis_execution_stages"):
                 node.cuvis_execution_stages = set(execution_stages)
+
+            if known_class and self._add_inferred_ports(node, input_port_hints, output_port_hints):
+                self._load_inferred_port_classes.add(class_path)
 
             return node  # type: ignore
 
@@ -273,6 +362,59 @@ class PipelineSerializer:
             label = node_name or class_path or "Unknown"
             self._load_failed_nodes.append(label)
             return None
+
+    @staticmethod
+    def _add_inferred_ports(
+        node: CuvisNodeAdapter,
+        input_ports: set[str] | None,
+        output_ports: set[str] | None,
+    ) -> bool:
+        """Give a node whose class declares no ports the ports its connections name.
+
+        A plugin manifest may list a class without port specs; its node would
+        otherwise come up portless and lose every connection. A class that
+        declares ports keeps exactly those: a connection naming another port is
+        broken and is reported as a missing connection.
+
+        Returns:
+            True if any port was added.
+        """
+        if node.inputs() or node.outputs():
+            return False
+        added = False
+        for name in sorted(set(input_ports or ()) - set(node.inputs())):
+            spec = _inferred_port_spec(is_input=True)
+            node._cuvis_input_specs[name] = spec
+            create_input_port(node, name, spec)
+            added = True
+        for name in sorted(set(output_ports or ()) - set(node.outputs())):
+            spec = _inferred_port_spec(is_input=False)
+            node._cuvis_output_specs[name] = spec
+            create_output_port(node, name, spec)
+            added = True
+        if added:
+            node.view.draw_node()
+        return added
+
+    def _missing_connections(
+        self,
+        connections: list[ConnectionConfig],
+        node_map: dict[str, CuvisNodeAdapter],
+    ) -> list[str]:
+        """Return the YAML connections the graph does not show, as ``source -> target``."""
+        drawn = {
+            (node.name(), port.name(), other.node().name(), other.name())
+            for node in node_map.values()
+            for port in node.output_ports()
+            for other in port.connected_ports()
+        }
+        missing = []
+        for conn in connections:
+            src = self._parse_connection_string(conn.source)
+            tgt = self._parse_connection_string(conn.target)
+            if not src or not tgt or (src[0], src[2], tgt[0], tgt[2]) not in drawn:
+                missing.append(f"{conn.source} -> {conn.target}")
+        return missing
 
     def _create_placeholder_class(
         self,
@@ -316,21 +458,11 @@ class PipelineSerializer:
                 self.set_name(class_name)
                 self.set_color(200, 50, 50)  # Red for unknown
                 for name in sorted(in_ports):
-                    spec = PortSpec(
-                        dtype="any",
-                        shape=(),
-                        description="(inferred from pipeline connections)",
-                        optional=True,
-                    )
+                    spec = _inferred_port_spec(is_input=True)
                     self._cuvis_input_specs[name] = spec
                     create_input_port(self, name, spec)
                 for name in sorted(out_ports):
-                    spec = PortSpec(
-                        dtype="any",
-                        shape=(),
-                        description="(inferred from pipeline connections)",
-                        optional=False,
-                    )
+                    spec = _inferred_port_spec(is_input=False)
                     self._cuvis_output_specs[name] = spec
                     create_output_port(self, name, spec)
 
@@ -427,10 +559,32 @@ class PipelineSerializer:
 
         return None
 
+    @staticmethod
+    def _node_size(node: CuvisNodeAdapter) -> tuple[int, int]:
+        """Return (width, height) from the node's view, or a 250x100 fallback.
+
+        A placeholder or freshly created node's view can still report
+        non-numeric or zero sizes before its first paint, so anything that
+        isn't a plain number falls back to the default footprint.
+        """
+        view = getattr(node, "view", None)
+        width = getattr(view, "width", None)
+        height = getattr(view, "height", None)
+        if (
+            isinstance(width, (int, float))
+            and isinstance(height, (int, float))
+            and width
+            and height
+        ):
+            return int(width), int(height)
+        return 250, 100
+
     def _auto_layout(self, graph: NodeGraph) -> None:
         """Apply automatic layout to nodes in the graph.
 
-        Uses a simple left-to-right flow layout based on connections.
+        Uses a left-to-right flow layout based on connections, spacing each
+        node by its own view size so nodes with long port names don't
+        overlap their neighbours.
 
         Args:
             graph: NodeGraphQt graph to layout
@@ -466,18 +620,26 @@ class PipelineSerializer:
             columns.append(ready)
             placed.update(ready)
 
-        # Position nodes
-        x_spacing = 300
-        y_spacing = 150
+        # Position nodes: each column starts where the previous column's
+        # widest node ends, plus a gap; within a column each node starts
+        # where the previous node's bottom ends, plus a gap.
+        column_gap = 80
+        row_gap = 40
         node_dict = {n.name(): n for n in nodes}
 
-        for col_idx, column in enumerate(columns):
-            for row_idx, node_name in enumerate(column):
+        x = 0
+        for column in columns:
+            y = 0
+            widest = 0
+            for node_name in column:
                 node = node_dict.get(node_name)
-                if node:
-                    x = col_idx * x_spacing
-                    y = row_idx * y_spacing
-                    node.set_pos(x, y)
+                if not node:
+                    continue
+                width, height = self._node_size(node)
+                node.set_pos(x, y)
+                y += height + row_gap
+                widest = max(widest, width)
+            x += widest + column_gap
 
     def to_yaml_file(
         self,
@@ -519,32 +681,58 @@ class PipelineSerializer:
         config = self.to_config(graph, metadata)
         return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
-    def _collect_pipeline_plugins(self, nodes_list: list[NodeConfig]) -> list[str] | None:
+    def _plugin_scope(self) -> set[str] | None:
+        """The plugins the loaded pipeline declares, or None when it declares none.
+
+        Class-name fallback stays within these (and the core built-ins), as the
+        server resolves a run against the declared plugins only.
+        """
+        return set(self.loaded_plugins) or None
+
+    def _collect_pipeline_plugins(
+        self, graph_nodes: list[Any], nodes_list: list[NodeConfig]
+    ) -> list[str] | None:
         """Derive the bare plugin-name set the pipeline depends on.
 
-        Looks up each node's class_name in the node registry and collects the
-        non-empty ``plugin_name`` of its owning plugin. Classes the registry
-        doesn't know (placeholders for unloaded plugins) are recorded as a load
-        warning rather than dropped silently.
+        A node's own stored owner (``cuvis_plugin_name``, set when the node was
+        created) wins first: the registry can resolve a node's class_name to a
+        different plugin's class of the same bare name after a folder switch
+        (the shared registry is cleared and re-registered while the graph
+        itself is kept), and the node's stored owner is the one that is
+        actually still on screen. Only when the node carries no stored owner
+        does the current registry's ``plugin_name`` for its class_name apply.
+        A core built-in is known to the registry (or was created) with an
+        empty ``plugin_name`` and needs no declaration. A node with neither a
+        stored owner nor a registry entry (a placeholder for a class unknown
+        even at load time) can't be attributed; it's recorded as a load
+        warning, and the plugins the pipeline declared when it was loaded
+        (:attr:`loaded_plugins`) are kept instead so nothing declared is
+        silently lost.
 
         Args:
+            graph_nodes: The live graph nodes, in the same order as nodes_list.
             nodes_list: Validated node configs from the graph.
 
         Returns:
             Sorted unique plugin names, or ``None`` when no plugin nodes are
-            present (so the field is omitted from the emitted yaml).
+            present and nothing was declared at load (so the field is omitted
+            from the emitted yaml).
         """
         plugin_names: set[str] = set()
         unknown: list[str] = []
-        for node_cfg in nodes_list:
-            info = self.node_registry.get_node_info(node_cfg.class_name)
-            if info is None:
-                unknown.append(node_cfg.class_name)
-                continue
-            plugin_name = info.get("plugin_name")
+        for node, node_cfg in zip(graph_nodes, nodes_list):
+            owner = getattr(node, "cuvis_plugin_name", "")
+            plugin_name = owner if isinstance(owner, str) else ""
+            if not plugin_name:
+                info = self.node_registry.get_node_info(node_cfg.class_name, self._plugin_scope())
+                if info is not None:
+                    plugin_name = info.get("plugin_name") or ""
+                else:
+                    unknown.append(node_cfg.class_name)
             if plugin_name:
                 plugin_names.add(plugin_name)
         if unknown:
+            plugin_names.update(self.loaded_plugins)
             self.last_load_warnings.append(
                 "Could not determine the owning plugin for: "
                 + ", ".join(sorted(set(unknown)))
@@ -598,7 +786,7 @@ class PipelineSerializer:
         # (populated by ListAvailableNodes): cuvis-ai node-lib classes resolve to
         # "cuvis_ai_builtin", core built-ins carry an empty plugin_name and need
         # no declaration. Unknown/placeholder classes can't be attributed.
-        plugins_list = self._collect_pipeline_plugins(nodes_list)
+        plugins_list = self._collect_pipeline_plugins(graph.all_nodes(), nodes_list)
 
         # Create validated PipelineConfig
         try:

@@ -13,6 +13,8 @@ setlocal enabledelayedexpansion
 ::   1. Python 3.11 with uv
 ::   2. cuvis-ai-ui venv with dev extras  (uv sync --extra dev)
 ::   3. cuvis-ai-core checked out as a sibling at ..\..\cuvis-ai-core\cuvis-ai-core\
+::      at the tag in .cuvis-ai-core-version, or CUVIS_AI_CORE_ROOT set to
+::      another checkout (a worktree at that tag, for example)
 ::   4. Inno Setup 6 installed (https://jrsoftware.org/isinfo.php)
 ::
 :: Run from the UI project root:  installer\build.bat
@@ -23,6 +25,12 @@ cd /d "%~dp0\.."
 set "PROJECT_ROOT=%cd%"
 set "INSTALLER_DIR=%PROJECT_ROOT%\installer"
 set "CORE_ROOT=%PROJECT_ROOT%\..\..\cuvis-ai-core\cuvis-ai-core"
+if defined CUVIS_AI_CORE_ROOT set "CORE_ROOT=%CUVIS_AI_CORE_ROOT%"
+if not exist "%CORE_ROOT%\pyproject.toml" (
+    echo ERROR: no cuvis-ai-core checkout at "%CORE_ROOT%"
+    echo        Clone it there or set CUVIS_AI_CORE_ROOT.
+    exit /b 1
+)
 set "PAYLOAD_DIR=%INSTALLER_DIR%\payload\cuvis-ai-core"
 
 echo ============================================================
@@ -37,7 +45,7 @@ echo.
 :: Step 1: Ensure UI build deps are installed
 :: -------------------------------------------------------
 echo [1/5] Installing build dependencies...
-uv pip install pyinstaller>=6.0.0 Pillow>=10.0.0
+uv pip install "pyinstaller>=6.0.0" "Pillow>=10.0.0"
 if errorlevel 1 (
     echo ERROR: Failed to install build dependencies.
     exit /b 1

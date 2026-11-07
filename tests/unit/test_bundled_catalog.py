@@ -1,44 +1,85 @@
-"""Smoke tests for the bundled cuvis_ai_catalog.yaml.
+"""Tests for the bundled plugin catalog.
 
-The refactored plugin loader requires each manifest ``capabilities`` entry to be
-a PluginCapabilityEntry (FQCN class_name + palette metadata), and the node
-palette is populated straight from this catalog (the server no longer imports
-plugin code). The catalog file is now ONE bare plugin manifest (a ``name``, a
-source, and its ``capabilities`` list) rather than a ``plugins:``-wrapped map.
-These tests guard that the shipped catalog still matches that contract.
+The UI ships every plugin manifest cuvis-ai keeps under ``cuvis_ai/configs/plugins/``
+as package data in ``cuvis_ai_ui/catalog/``, one bare manifest per file. At startup
+each one is registered with the server, which builds the node palette from the
+manifests' ``capabilities``. These tests guard that the shipped files still match
+the manifest schema and that the loader turns them into bundled plugin entries.
 """
 
-from cuvis_ai_schemas.plugin import PluginCapabilityEntry
+import fnmatch
+import tomllib
+from pathlib import Path
 
-from cuvis_ai_ui.settings.plugins import build_manifest, get_default_plugin_entries
+import pytest
+import yaml
+from cuvis_ai_schemas.plugin import parse_plugin_manifest
+
+import cuvis_ai_ui
+from cuvis_ai_ui.settings.plugins import (
+    BUNDLED_SOURCE,
+    build_manifest,
+    get_catalog_dir,
+    get_default_plugin_entries,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+CATALOG_FILES = sorted(get_catalog_dir().glob("*.yaml")) + sorted(get_catalog_dir().glob("*.yml"))
 
 
-def _builtin_manifest():
-    manifest = build_manifest(get_default_plugin_entries(), enabled_only=False)
-    assert isinstance(manifest, list)
-    matches = [m for m in manifest if m.get("name") == "cuvis_ai_builtin"]
-    assert len(matches) == 1, "bundled catalog must declare exactly one cuvis_ai_builtin manifest"
-    return matches[0]
+def test_catalog_lives_inside_the_package():
+    # A wheel install has no repo root, so the catalog must ship under cuvis_ai_ui/.
+    assert get_catalog_dir().parent == Path(cuvis_ai_ui.__file__).parent
 
 
-def test_bundled_catalog_loads():
+def test_package_data_ships_every_catalog_file_including_yml():
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    globs = pyproject["tool"]["setuptools"]["package-data"]["cuvis_ai_ui"]
+
+    package_dir = Path(cuvis_ai_ui.__file__).parent
+    for path in CATALOG_FILES:
+        relative = path.relative_to(package_dir).as_posix()
+        assert any(fnmatch.fnmatch(relative, pattern) for pattern in globs), (
+            f"{relative} matches no cuvis_ai_ui package-data glob"
+        )
+
+    assert any(fnmatch.fnmatch("catalog/example.yml", pattern) for pattern in globs), (
+        "no package-data glob matches a .yml catalog manifest"
+    )
+
+
+def test_catalog_ships_the_released_cuvis_ai_plugins():
+    names = [yaml.safe_load(path.read_text(encoding="utf-8"))["name"] for path in CATALOG_FILES]
+    assert len(names) >= 18
+    assert len(names) == len(set(names)), "two manifests share a plugin name"
+    assert "cuvis_ai_builtin" in names
+
+
+@pytest.mark.parametrize("path", CATALOG_FILES, ids=lambda p: p.stem)
+def test_each_manifest_validates_and_pins_a_release(path):
+    # A bundled local path would make a server install whatever sits there.
+    manifest = parse_plugin_manifest(yaml.safe_load(path.read_text(encoding="utf-8")))
+    assert getattr(manifest, "repo", None), f"{path.name} has no git repo source"
+    assert getattr(manifest, "tag", None), f"{path.name} pins no tag"
+
+
+def test_default_entries_are_bundled_one_per_file():
     entries = get_default_plugin_entries()
-    assert entries, "bundled cuvis_ai_catalog.yaml produced no plugin entries"
-    # One file is one bare plugin.
-    assert len(entries) == 1
-    assert entries[0]["name"] == "cuvis_ai_builtin"
+    assert len(entries) == len(CATALOG_FILES)
+    assert {entry["source"] for entry in entries} == {BUNDLED_SOURCE}
 
 
-def test_bundled_catalog_is_git_sourced_with_capabilities():
-    builtin = _builtin_manifest()
-    assert builtin.get("repo"), "bundled catalog must use a git source"
-    assert builtin.get("tag"), "bundled catalog must pin a tag"
-    capabilities = builtin.get("capabilities")
-    assert isinstance(capabilities, list) and capabilities
+def test_builtin_manifest_carries_port_specs():
+    manifests = build_manifest(get_default_plugin_entries(), enabled_only=False)
+    builtin = next(m for m in manifests if m["name"] == "cuvis_ai_builtin")
+    nodes = [c for c in builtin["capabilities"] if c.get("kind", "node") == "node"]
+    with_ports = [c for c in nodes if c.get("input_specs") or c.get("output_specs")]
+    assert len(nodes) >= 150
+    assert len(with_ports) >= 150
 
 
-def test_bundled_catalog_capabilities_validate_as_capability_entries():
-    capabilities = _builtin_manifest()["capabilities"]
-    for raw in capabilities:
-        entry = PluginCapabilityEntry(**raw)  # raises on any schema violation
-        assert "." in entry.class_name, f"not fully-qualified: {entry.class_name!r}"
+def test_built_manifests_validate():
+    # What the UI sends over LoadPlugin.
+    for manifest in build_manifest(get_default_plugin_entries(), enabled_only=False):
+        parse_plugin_manifest(manifest)

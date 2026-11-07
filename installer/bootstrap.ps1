@@ -5,8 +5,9 @@
 #   1. Ensure `uv` is on PATH (installs astral-sh/uv if missing).
 #   2. Copy the shipped cuvis-ai-core source into the per-user data dir.
 #   3. Create a venv at <user-data>\server-venv via `uv venv --python 3.11`.
-#   4. `uv sync` against the source so cuvis-ai-core + torch CUDA + cuvis SDK
-#      binding + cuvis-ai-schemas all land in the venv.
+#   4. `uv sync` against the source so cuvis-ai-core + torch CUDA +
+#      cuvis-ai-schemas land in the venv (the Cuvis SDK comes with the
+#      cuvis-ai-dataloader plugin, not with core).
 #   5. Install pystray for the server tray icon.
 #   6. Download FFmpeg LGPL shared and Graphviz portable into <app>\ffmpeg
 #      and <app>\graphviz so torchcodec/dot are reachable at runtime.
@@ -205,7 +206,7 @@ try {
     # --- 7. smoke test ------------------------------------------------------
     Log "Smoke-test: importing cuvis_ai_core in the new venv..."
     Invoke-Native -LogPrefix "smoke" -Block {
-        & $VenvPy -c "import cuvis, cuvis_ai_core, torch; print('cuvis_ai_core OK; torch ' + torch.__version__ + ' CUDA=' + str(torch.cuda.is_available()))"
+        & $VenvPy -c "import cuvis_ai_core, torch; print('cuvis_ai_core OK; torch ' + torch.__version__ + ' CUDA=' + str(torch.cuda.is_available()))"
     }
 
     Log "=== bootstrap complete ==="

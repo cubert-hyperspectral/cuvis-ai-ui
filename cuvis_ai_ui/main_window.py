@@ -5,15 +5,16 @@ This module provides the Qt MainWindow with:
 - Menu bar with File, Edit, View, Tools menus
 - Toolbar with common actions
 - Status bar with connection indicator
-- Dock widgets for node palette and property editor
+- Dock widgets for the pipelines of a folder, node palette and property editor
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 from NodeGraphQt import NodeGraph
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -30,10 +31,12 @@ from PySide6.QtWidgets import (
 
 from .adapters import NodeRegistry, PipelineSerializer
 from .grpc.client import CuvisAIClient
-from .server import ServerManager
+from .server import SERVER_READY_TIMEOUT, ServerManager, is_listening
 from .widgets.canvas_drop_target import CanvasDropTarget
 from .widgets.connection_dialog import ConnectionDialog
+from .widgets.pipeline_browser import PipelineBrowser
 from .widgets.pipeline_info_dialog import PipelineInfoDialog
+from .workspace import list_pipelines
 
 
 class _ViewerModifierSync(QObject):
@@ -65,7 +68,7 @@ class MainWindow(QMainWindow):
 
     Provides the visual pipeline editor with:
     - Central NodeGraphQt canvas
-    - Left dock: Node palette (drag-and-drop)
+    - Left dock: Pipelines of the open folder, above the node palette (drag-and-drop)
     - Right dock: Property editor
     - Top: Menu bar and toolbar
     - Bottom: Status bar
@@ -75,12 +78,15 @@ class MainWindow(QMainWindow):
         pipeline_saved: Emitted when a pipeline is saved (path: str)
         node_selected: Emitted when a node is selected (node or None)
         connection_status_changed: Emitted when gRPC connection status changes (connected: bool)
+        folder_changed: Emitted when a pipelines folder is opened, before its first
+            pipeline loads (folder: Path)
     """
 
     pipeline_loaded = Signal(str)
     pipeline_saved = Signal(str)
     node_selected = Signal(object)
     connection_status_changed = Signal(bool)
+    folder_changed = Signal(object)
 
     def __init__(
         self,
@@ -103,8 +109,9 @@ class MainWindow(QMainWindow):
         # Node registry for available nodes
         self._node_registry = NodeRegistry()
 
-        # Current file path
+        # Current file path and pipelines folder
         self._current_file: Path | None = None
+        self._current_folder: Path | None = None
         self._unsaved_changes = False
 
         # Pipeline metadata
@@ -164,6 +171,11 @@ class MainWindow(QMainWindow):
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self.open_pipeline)
         file_menu.addAction(open_action)
+
+        open_folder_action = QAction("Open &Folder...", self)
+        open_folder_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        open_folder_action.triggered.connect(self.open_folder)
+        file_menu.addAction(open_folder_action)
 
         file_menu.addSeparator()
 
@@ -236,6 +248,11 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        self._pipelines_action = QAction("P&ipelines", self)
+        self._pipelines_action.setCheckable(True)
+        self._pipelines_action.setChecked(False)
+        view_menu.addAction(self._pipelines_action)
+
         self._palette_action = QAction("&Node Palette", self)
         self._palette_action.setCheckable(True)
         self._palette_action.setChecked(True)
@@ -256,6 +273,7 @@ class MainWindow(QMainWindow):
         refresh_nodes_action = QAction("&Refresh Node List", self)
         refresh_nodes_action.triggered.connect(self._refresh_nodes)
         tools_menu.addAction(refresh_nodes_action)
+        self._refresh_nodes_action = refresh_nodes_action
 
         tools_menu.addSeparator()
 
@@ -319,7 +337,9 @@ class MainWindow(QMainWindow):
         # Connection status indicator
         self._connection_label = QLabel("Not connected")
         self._status_bar.addPermanentWidget(self._connection_label)
-        self._update_connection_status(False)
+        if self._client is not None:
+            self._session_id = self._client.session_id
+        self._update_connection_status(self._client is not None)
 
     def _setup_dock_widgets(self) -> None:
         """Setup dock widgets for palette and properties."""
@@ -331,6 +351,20 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._palette_dock)
         self._palette_action.toggled.connect(self._palette_dock.setVisible)
         self._palette_dock.visibilityChanged.connect(self._palette_action.setChecked)
+
+        # Pipelines dock (left side, above the palette), shown once a folder is open
+        self._pipeline_browser = PipelineBrowser(self)
+        self._pipeline_browser.pipeline_selected.connect(self._on_pipeline_selected)
+        self._pipelines_dock = QDockWidget("Pipelines", self)
+        self._pipelines_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self._pipelines_dock.setWidget(self._pipeline_browser)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._pipelines_dock)
+        self.splitDockWidget(self._pipelines_dock, self._palette_dock, Qt.Orientation.Vertical)
+        self._pipelines_dock.setVisible(False)
+        self._pipelines_action.toggled.connect(self._pipelines_dock.setVisible)
+        self._pipelines_dock.visibilityChanged.connect(self._pipelines_action.setChecked)
 
         # Properties dock (right side)
         self._properties_dock = QDockWidget("Properties", self)
@@ -346,6 +380,8 @@ class MainWindow(QMainWindow):
         # Graph signals
         self._graph.node_selected.connect(self._on_node_selected)
         self._graph.nodes_deleted.connect(self._on_nodes_deleted)
+        # Every graph edit (add, move, connect, delete) goes through the undo stack
+        self._graph.undo_stack().indexChanged.connect(self._on_graph_edited)
 
     def set_palette_widget(self, widget: Any) -> None:
         """Set the node palette widget.
@@ -362,6 +398,9 @@ class MainWindow(QMainWindow):
             widget: Widget to use as properties editor
         """
         self._properties_dock.setWidget(widget)
+        property_changed = getattr(widget, "property_changed", None)
+        if property_changed is not None:
+            property_changed.connect(self._on_property_changed)
 
     @property
     def graph(self) -> NodeGraph:
@@ -382,6 +421,33 @@ class MainWindow(QMainWindow):
     def plugins_action(self) -> QAction | None:
         """Get the Plugins menu action (if available)."""
         return getattr(self, "_plugins_action", None)
+
+    @property
+    def refresh_nodes_action(self) -> QAction:
+        """Get the Tools > Refresh Node List action."""
+        return self._refresh_nodes_action
+
+    @property
+    def pipeline_browser(self) -> PipelineBrowser:
+        """Get the pipelines browser shown in the Pipelines dock."""
+        return self._pipeline_browser
+
+    @property
+    def current_folder(self) -> Path | None:
+        """The open pipelines folder, or None."""
+        return self._current_folder
+
+    @property
+    def current_file(self) -> Path | None:
+        """The open pipeline file, or None."""
+        return self._current_file
+
+    def set_known_plugins(self, names: Iterable[str] | None) -> None:
+        """Plugin names the server accepted; a pipeline naming another one warns on load.
+
+        None turns the check off (no server).
+        """
+        self._serializer.known_plugins = set(names) if names is not None else None
 
     @property
     def session_id(self) -> str | None:
@@ -409,70 +475,158 @@ class MainWindow(QMainWindow):
 
     # File operations
 
+    def _confirm_discard(self) -> bool:
+        """Ask what to do with unsaved changes; True when the graph may be replaced."""
+        if not self._unsaved_changes:
+            return True
+        reply = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "The pipeline has unsaved changes. Save them first?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Save:
+            self.save_pipeline()
+            return not self._unsaved_changes
+        return reply == QMessageBox.StandardButton.Discard
+
     def new_pipeline(self) -> None:
         """Create a new empty pipeline."""
-        if self._unsaved_changes:
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Changes",
-                "Do you want to save changes before creating a new pipeline?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-            )
-            if reply == QMessageBox.StandardButton.Save:
-                self.save_pipeline()
-            elif reply == QMessageBox.StandardButton.Cancel:
-                return
+        if not self._confirm_discard():
+            return
 
+        self.node_selected.emit(None)
         self._graph.clear_session()
         self._current_file = None
         self._metadata = {}
         self._unsaved_changes = False
         self._update_title()
+        self._pipeline_browser.select(None)
         self._status_bar.showMessage("New pipeline created", 3000)
 
-    def open_pipeline(self, path: str | None = None) -> None:
+    def open_pipeline(
+        self,
+        path: str | Path | None = None,
+        *,
+        confirm: bool = True,
+        warn_dialog: bool = True,
+    ) -> bool:
         """Open a pipeline from a YAML file.
 
         Args:
             path: Optional path to open. If None, shows file dialog.
+            confirm: Ask about unsaved changes first.
+            warn_dialog: Show load warnings in a dialog; otherwise on the status bar.
+
+        Returns:
+            True when the pipeline was opened.
         """
         # Handle Qt signal arguments (triggered signal can pass bool)
         if path is None or isinstance(path, bool):
             path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Open Pipeline",
-                "",
+                str(self._current_folder or ""),
                 "YAML Files (*.yaml *.yml);;All Files (*)",
             )
 
         # Validate path (handles cancel dialog, empty string, etc.)
         if not path:
-            return
+            return False
+        if confirm and not self._confirm_discard():
+            return False
 
+        path = str(path)
+        self.node_selected.emit(None)
         try:
             self._metadata = self._serializer.from_yaml_file(path, self._graph)
-            self._current_file = Path(path)
-            self._unsaved_changes = False
-            self._update_title()
-            self.pipeline_loaded.emit(path)
-            self._status_bar.showMessage(f"Opened: {path}", 3000)
-            logger.info(f"Opened pipeline: {path}")
-            if self._serializer.last_load_warnings:
-                warnings_text = "\n- ".join(self._serializer.last_load_warnings)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open pipeline:\n{e}")
+            logger.error(f"Failed to open pipeline {path}: {e}")
+            return False
+
+        self._current_file = Path(path)
+        self._unsaved_changes = False
+        self._update_title()
+        self._pipeline_browser.select(self._current_file)
+        for node in self._graph.all_nodes():
+            node.set_property("selected", False, push_undo=False)
+        QTimer.singleShot(0, self._fit_to_view)
+        self.pipeline_loaded.emit(path)
+        self._status_bar.showMessage(f"Opened: {path}", 3000)
+        logger.info(f"Opened pipeline: {path}")
+        warnings = self._serializer.last_load_warnings
+        if warnings:
+            for warning in warnings:
+                logger.warning(f"{self._current_file.name}: {warning}")
+            if warn_dialog:
                 QMessageBox.warning(
                     self,
                     "Pipeline Load Warnings",
                     "The pipeline loaded with warnings:\n\n- "
-                    + warnings_text
-                    + "\n\nTip: Missing nodes usually mean the required plugins "
-                    "weren't loaded yet (Tools → Plugin Manager), or the server "
-                    "doesn't have access to the package that provides those nodes.",
+                    + "\n- ".join(warnings)
+                    + "\n\nTip: missing nodes or plugins mean their manifests are not "
+                    "loaded. Put the manifests in the pipeline folder's plugins/ "
+                    "subfolder, start the UI with --plugins-dir, or use Tools > "
+                    "Manage Plugins.",
                 )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open pipeline:\n{e}")
-            logger.error(f"Failed to open pipeline {path}: {e}")
+            else:
+                self._status_bar.showMessage(
+                    f"Opened {self._current_file.name} with {len(warnings)} warning(s): "
+                    + warnings[0]
+                )
+        return True
+
+    def open_folder(
+        self, path: str | Path | None = None, pipeline: str | Path | None = None
+    ) -> bool:
+        """Open a folder of pipelines in the Pipelines dock.
+
+        ``folder_changed`` is emitted first, so the folder's plugins are
+        registered before ``pipeline`` (default: the first one in the folder)
+        opens.
+
+        Returns:
+            True when the folder was opened.
+        """
+        if path is None or isinstance(path, bool):
+            path = QFileDialog.getExistingDirectory(
+                self, "Open Pipelines Folder", str(self._current_folder or "")
+            )
+        if not path:
+            return False
+
+        # Absolute() (not resolve()) so a folder the CLI opened by a relative
+        # path (cuvis-ui pipelines) still compares equal to the absolute paths
+        # Save As returns. resolve() would also expand Windows 8.3 short
+        # names, which breaks comparisons against some tmp paths.
+        folder = Path(path).absolute()
+        pipelines = list_pipelines(folder)
+        if pipeline is not None:
+            target: Path | None = Path(pipeline).absolute()
+        else:
+            target = pipelines[0] if pipelines else None
+        if target is not None and not self._confirm_discard():
+            return False
+
+        self._current_folder = folder
+        self._pipeline_browser.set_folder(folder)
+        self._pipelines_dock.setVisible(True)
+        self.folder_changed.emit(folder)
+        if target is not None:
+            self.open_pipeline(target, confirm=False)
+        else:
+            self._status_bar.showMessage(f"No pipelines in {folder}", 5000)
+        return True
+
+    def _on_pipeline_selected(self, path: str) -> None:
+        """Open the pipeline picked in the browser, or snap back if the user cancels."""
+        if Path(path) == self._current_file:
+            return
+        if not self.open_pipeline(path, warn_dialog=False):
+            self._pipeline_browser.select(self._current_file)
 
     def save_pipeline(self) -> None:
         """Save the current pipeline."""
@@ -510,6 +664,9 @@ class MainWindow(QMainWindow):
             self._current_file = path
             self._unsaved_changes = False
             self._update_title()
+            if self._current_folder is not None and path.parent == self._current_folder:
+                self._pipeline_browser.set_folder(self._current_folder)
+            self._pipeline_browser.select(path)
             self.pipeline_saved.emit(str(path))
             self._status_bar.showMessage(f"Saved: {path}", 3000)
             logger.info(f"Saved pipeline: {path}")
@@ -530,7 +687,7 @@ class MainWindow(QMainWindow):
     def _select_all(self) -> None:
         """Select all nodes."""
         for node in self._graph.all_nodes():
-            node.set_selected(True)
+            node.set_property("selected", True, push_undo=False)
 
     def _undo(self) -> None:
         """Undo last action."""
@@ -576,29 +733,38 @@ class MainWindow(QMainWindow):
         host = settings.get("host", "localhost")
         port = settings.get("port", 50051)
 
-        # Stop existing local server if switching away
-        if self._server_manager is not None and settings["mode"] == "remote":
+        # Stop a server this window started before giving it up: switching to
+        # remote, switching to a different local port nothing listens on yet,
+        # or reconnecting to a manager that is no longer answering. Otherwise
+        # that process keeps running, unreachable, until the app exits.
+        if self._server_manager is not None and (
+            settings["mode"] == "remote"
+            or self._server_manager.port != port
+            or not self._server_manager.is_running()
+        ):
             self._server_manager.stop()
             self._server_manager = None
 
-        # Start local server if switching to local mode
-        if settings["mode"] == "local" and (
-            self._server_manager is None or not self._server_manager.is_running()
-        ):
-            self._server_manager = ServerManager(port=port)
-            self._server_manager.start()
-            if not self._server_manager.wait_ready(timeout=30):
-                QMessageBox.warning(
-                    self,
-                    "Server Start Warning",
-                    "The local gRPC server did not become ready in time.",
-                )
+        # Local mode means this machine. Start a server unless one already listens
+        # (started outside the UI, or by an earlier run). A manager still here is
+        # this window's own server on this port, alive but not listening yet (a
+        # slow first start): wait for it again instead of starting a second one.
+        if settings["mode"] == "local":
             host = "localhost"
+            if not is_listening(host, port):
+                if self._server_manager is None:
+                    self._server_manager = ServerManager(port=port)
+                    self._server_manager.start()
+                if not self._server_manager.wait_ready(timeout=SERVER_READY_TIMEOUT):
+                    detail = self._server_manager.last_error or (
+                        "The local gRPC server did not become ready in time."
+                    )
+                    QMessageBox.warning(self, "Server Start Warning", detail)
 
         # Close old client
         if self._client is not None:
             try:
-                self._client.close()
+                self._client.disconnect()
             except Exception:
                 pass
 
@@ -671,6 +837,18 @@ class MainWindow(QMainWindow):
         self._unsaved_changes = True
         self._update_title()
 
+    def _on_graph_edited(self, _index: int) -> None:
+        """Mark the pipeline dirty when the graph's undo stack moves."""
+        if not self._unsaved_changes:
+            self._unsaved_changes = True
+            self._update_title()
+
+    def _on_property_changed(self, _key: str, _value: Any) -> None:
+        """Mark the pipeline dirty when the properties editor changes a value."""
+        if not self._unsaved_changes:
+            self._unsaved_changes = True
+            self._update_title()
+
     def _update_title(self) -> None:
         """Update the window title."""
         title = "Cuvis.AI UI"
@@ -696,29 +874,15 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         """Handle window close event."""
-        if self._unsaved_changes:
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Changes",
-                "Do you want to save changes before closing?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-            )
-            if reply == QMessageBox.StandardButton.Save:
-                self.save_pipeline()
-                event.accept()
-            elif reply == QMessageBox.StandardButton.Discard:
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
+        if not self._confirm_discard():
+            event.ignore()
+            return
+        event.accept()
 
         # Close gRPC client
         if self._client is not None:
             try:
-                self._client.close()
+                self._client.disconnect()
             except Exception:
                 pass
 

@@ -2,12 +2,12 @@
 
 This script demonstrates how to:
 1. Connect to the gRPC server
-2. Load cuvis-ai catalog nodes via the LoadPlugin RPC
+2. Load every manifest in the bundled catalog folder via the LoadPlugin RPC
 3. List all available nodes from the server
 """
 
-from pathlib import Path
 from cuvis_ai_ui.grpc.client import CuvisAIClient
+from cuvis_ai_ui.settings.plugins import get_catalog_dir
 
 
 def main():
@@ -15,10 +15,10 @@ def main():
     print("Cuvis.AI Catalog Node Loading (via gRPC)")
     print("=" * 60)
 
-    manifest_path = Path(__file__).parent / "cuvis_ai_catalog.yaml"
-    if not manifest_path.exists():
-        print(f"\n✗ Manifest file not found: {manifest_path}")
-        print("  Please ensure cuvis_ai_catalog.yaml exists in the project root")
+    catalog_dir = get_catalog_dir()
+    manifest_paths = sorted(catalog_dir.glob("*.yaml")) + sorted(catalog_dir.glob("*.yml"))
+    if not manifest_paths:
+        print(f"\n✗ No manifests found in: {catalog_dir}")
         return
 
     # Connect to server
@@ -27,24 +27,25 @@ def main():
         with CuvisAIClient() as client:
             print(f"   ✓ Connected (session: {client.session_id})")
 
-            # Load plugins from manifest
-            print("\n2. Loading cuvis-ai catalog nodes via LoadPlugin RPC...")
+            # Load plugins from every manifest in the catalog
+            print(f"\n2. Loading {len(manifest_paths)} catalog manifest(s) via LoadPlugin RPC...")
             try:
-                result = client.load_plugins(manifest_path)
+                for manifest_path in manifest_paths:
+                    result = client.load_plugins(manifest_path)
 
-                if result["loaded_plugins"]:
-                    print(f"   ✓ Loaded {len(result['loaded_plugins'])} plugin(s):")
-                    for plugin in result["loaded_plugins"]:
-                        print(f"      - {plugin}")
+                    if result["loaded_plugins"]:
+                        print(f"   ✓ Loaded {len(result['loaded_plugins'])} plugin(s):")
+                        for plugin in result["loaded_plugins"]:
+                            print(f"      - {plugin}")
 
-                if result["failed_plugins"]:
-                    print(f"\n   ✗ Failed to load {len(result['failed_plugins'])} plugin(s):")
-                    for plugin in result["failed_plugins"]:
-                        print(f"      - {plugin}")
+                    if result["failed_plugins"]:
+                        print(f"\n   ✗ Failed to load {len(result['failed_plugins'])} plugin(s):")
+                        for plugin in result["failed_plugins"]:
+                            print(f"      - {plugin}")
 
             except Exception as e:
                 print(f"   ✗ Failed to load plugins: {e}")
-                print("\n   Note: Make sure the path in cuvis_ai_catalog.yaml is correct")
+                print(f"\n   Note: Make sure the manifests in {catalog_dir} are correct")
                 return
 
             # List available nodes

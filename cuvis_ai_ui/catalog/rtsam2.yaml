@@ -1,0 +1,185 @@
+# RTSAM2 Plugin Manifest
+#
+# To use RTSAM2, declare `plugins: [rtsam2]` in the pipeline yaml and point
+# the loader at the catalog directory that holds this manifest:
+#   uv run restore-pipeline --pipeline-path <pipeline>.yaml --plugins-dir cuvis_ai/configs/plugins
+
+name: rtsam2
+# Real-time SAM2 / EfficientTAM streaming tracking plugin.
+#
+# For local development against a checkout, comment the repo/tag pin and use:
+# path: "D:/code-repos/cuvis-ai-rtsam2/cuvis-ai-rtsam2"
+repo: "https://github.com/cubert-hyperspectral/cuvis-ai-rtsam2.git"
+tag: "v0.5.0"
+package_name: "cuvis-ai-rtsam2"
+capabilities:
+- class_name: cuvis_ai_rtsam2.node.rtsam2_streaming_propagation.RTSAM2BboxPropagation
+  category: model
+  tags: [batched, bbox, inference, learnable, mask, rgb, segmentation, stateful, torch, tracking, video]
+  icon_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" fill=\"none\" stroke=\"#4E7BD4\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"14\" cy=\"20\" r=\"3\"/>\n  <circle cx=\"14\" cy=\"32\" r=\"3\"/>\n  <circle cx=\"14\" cy=\"44\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"16\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"32\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"48\" r=\"3\"/>\n  <circle cx=\"50\" cy=\"26\" r=\"3\"/>\n  <circle cx=\"50\" cy=\"38\" r=\"3\"/>\n  <path d=\"M17 20l12-4M17 32l12-16M17 44l12-28\"/>\n  <path d=\"M17 20l12 12M17 32l12 0M17 44l12-12\"/>\n  <path d=\"M17 20l12 28M17 32l12 16M17 44l12 4\"/>\n  <path d=\"M35 16l12 10M35 32l12-6M35 48l12-22\"/>\n  <path d=\"M35 16l12 22M35 32l12 6M35 48l12-10\"/>\n</svg>\n"
+  input_specs:
+    rgb_image:
+      dtype: float32
+      shape: [1, -1, -1, 3]
+      optional: false
+      description: RGB frame [1,H,W,3] in float32 with values in [0, 1].
+    frame_id:
+      dtype: int64
+      shape: [1]
+      optional: true
+      description: Source frame index [1]. Preserved by upstream sinks.
+    bboxes:
+      dtype: ''
+      shape: []
+      optional: true
+      description: Optional per-frame list of bbox prompt dicts with keys element_id, object_id, x_min, y_min, x_max, y_max.
+  output_specs:
+    mask:
+      dtype: int32
+      shape: [1, -1, -1]
+      optional: false
+      description: ''
+    object_ids:
+      dtype: int64
+      shape: [1, -1]
+      optional: false
+      description: ''
+    detection_scores:
+      dtype: float32
+      shape: [1, -1]
+      optional: false
+      description: ''
+  doc_summary: RTSAM2 propagation with runtime bbox prompts.
+- class_name: cuvis_ai_rtsam2.node.rtsam2_streaming_propagation.RTSAM2MaskPropagation
+  category: model
+  tags: [batched, inference, learnable, mask, rgb, segmentation, stateful, torch, tracking, video]
+  icon_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" fill=\"none\" stroke=\"#4E7BD4\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"14\" cy=\"20\" r=\"3\"/>\n  <circle cx=\"14\" cy=\"32\" r=\"3\"/>\n  <circle cx=\"14\" cy=\"44\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"16\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"32\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"48\" r=\"3\"/>\n  <circle cx=\"50\" cy=\"26\" r=\"3\"/>\n  <circle cx=\"50\" cy=\"38\" r=\"3\"/>\n  <path d=\"M17 20l12-4M17 32l12-16M17 44l12-28\"/>\n  <path d=\"M17 20l12 12M17 32l12 0M17 44l12-12\"/>\n  <path d=\"M17 20l12 28M17 32l12 16M17 44l12 4\"/>\n  <path d=\"M35 16l12 10M35 32l12-6M35 48l12-22\"/>\n  <path d=\"M35 16l12 22M35 32l12 6M35 48l12-10\"/>\n</svg>\n"
+  input_specs:
+    rgb_image:
+      dtype: float32
+      shape: [1, -1, -1, 3]
+      optional: false
+      description: RGB frame [1,H,W,3] in float32 with values in [0, 1].
+    frame_id:
+      dtype: int64
+      shape: [1]
+      optional: true
+      description: Source frame index [1]. Preserved by upstream sinks.
+    mask:
+      dtype: int32
+      shape: [1, -1, -1]
+      optional: true
+      description: Optional int32 label map [1,H,W]. 0=background, each positive label is treated as an object ID prompt on that frame.
+  output_specs:
+    mask:
+      dtype: int32
+      shape: [1, -1, -1]
+      optional: false
+      description: ''
+    object_ids:
+      dtype: int64
+      shape: [1, -1]
+      optional: false
+      description: ''
+    detection_scores:
+      dtype: float32
+      shape: [1, -1]
+      optional: false
+      description: ''
+  doc_summary: RTSAM2 propagation with runtime label-map prompts.
+- class_name: cuvis_ai_rtsam2.node.rtsam2_point_expansion.RTSAM2PointExpansion
+  category: model
+  tags: [batched, image, inference, keypoints, learnable, mask, rgb, segmentation, torch]
+  icon_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" fill=\"none\" stroke=\"#4E7BD4\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"14\" cy=\"20\" r=\"3\"/>\n  <circle cx=\"14\" cy=\"32\" r=\"3\"/>\n  <circle cx=\"14\" cy=\"44\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"16\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"32\" r=\"3\"/>\n  <circle cx=\"32\" cy=\"48\" r=\"3\"/>\n  <circle cx=\"50\" cy=\"26\" r=\"3\"/>\n  <circle cx=\"50\" cy=\"38\" r=\"3\"/>\n  <path d=\"M17 20l12-4M17 32l12-16M17 44l12-28\"/>\n  <path d=\"M17 20l12 12M17 32l12 0M17 44l12-12\"/>\n  <path d=\"M17 20l12 28M17 32l12 16M17 44l12 4\"/>\n  <path d=\"M35 16l12 10M35 32l12-6M35 48l12-22\"/>\n  <path d=\"M35 16l12 22M35 32l12 6M35 48l12-10\"/>\n</svg>\n"
+  input_specs:
+    rgb_image:
+      dtype: float32
+      shape: [1, -1, -1, 3]
+      optional: false
+      description: RGB frame [1,H,W,3] in float32 with values in [0, 1].
+    points:
+      dtype: ''
+      shape: []
+      optional: true
+      description: Optional per-frame list of point prompt dicts with keys element_id, x, y, type (type in {positive, negative, neutral}). Positive=object, negative=background.
+    frame_id:
+      dtype: int64
+      shape: [1]
+      optional: true
+      description: Optional source frame index [1]; accepted for contract parity, unused.
+  output_specs:
+    mask:
+      dtype: int32
+      shape: [1, -1, -1]
+      optional: false
+      description: ''
+    object_ids:
+      dtype: int64
+      shape: [1, -1]
+      optional: false
+      description: ''
+    detection_scores:
+      dtype: float32
+      shape: [1, -1]
+      optional: false
+      description: ''
+  doc_summary: Expand positive/negative click points into one object mask on a single frame.
+weights:
+- name: efficienttam_s
+  display_name: RTSAM (EfficientTAM small)
+  summary: Point expansion, propagation; the default RTSAM variant
+  used_for: [Point expansion, Propagation]
+  repo_id: cubert-gmbh/efficient-track-anything
+  filename: efficienttam_s.pt
+  revision: 3dfd0228d7774b94c24116cf729e03c209ff448a
+  sha256: 2b572be30d9e96ee29c8d785fe157c6b079ede7d56fbc8a3671d4120e63c89cd
+  size_bytes: 136375868
+  license: Apache-2.0
+  license_file: LICENSE
+  aliases: [efficienttam]
+  selected_by: model_type
+  default: true
+  explicit_path_hparams: [model_dir]
+  description: 'EfficientTAM small checkpoint, the variant an rtsam2 pipeline gets when it sets no model_type (or model_type: efficienttam).'
+- name: efficienttam_ti
+  display_name: RTSAM (EfficientTAM tiny)
+  summary: Point expansion, propagation; smaller and faster
+  used_for: [Point expansion, Propagation]
+  repo_id: cubert-gmbh/efficient-track-anything
+  filename: efficienttam_ti.pt
+  revision: 3dfd0228d7774b94c24116cf729e03c209ff448a
+  sha256: acbb17b28cca1f860acee09c9ecb6efdb732080dc7a85a07292c31813175fa7d
+  size_bytes: 71616316
+  license: Apache-2.0
+  license_file: LICENSE
+  selected_by: model_type
+  explicit_path_hparams: [model_dir]
+  description: 'EfficientTAM tiny checkpoint (model_type: efficienttam_ti).'
+- name: efficienttam_s_512x512
+  display_name: RTSAM (EfficientTAM small, 512 px)
+  summary: Point expansion, propagation at 512 x 512 input
+  used_for: [Point expansion, Propagation]
+  repo_id: cubert-gmbh/efficient-track-anything
+  filename: efficienttam_s_512x512.pt
+  revision: 3dfd0228d7774b94c24116cf729e03c209ff448a
+  sha256: 67b5840012737ed2c94a4cb8787c5c1b27b3a946045d2e602e65ef77230b6085
+  size_bytes: 136379145
+  license: Apache-2.0
+  license_file: LICENSE
+  selected_by: model_type
+  explicit_path_hparams: [model_dir]
+  description: 'EfficientTAM small checkpoint for 512 x 512 input (model_type: efficienttam_s_512x512).'
+- name: efficienttam_ti_512x512
+  display_name: RTSAM (EfficientTAM tiny, 512 px)
+  summary: Point expansion, propagation at 512 x 512 input, smallest
+  used_for: [Point expansion, Propagation]
+  repo_id: cubert-gmbh/efficient-track-anything
+  filename: efficienttam_ti_512x512.pt
+  revision: 3dfd0228d7774b94c24116cf729e03c209ff448a
+  sha256: 7d4d652a465f0081391050932f45d8a66768ccc99c8ea393ce8a5927e83f3b9b
+  size_bytes: 71620052
+  license: Apache-2.0
+  license_file: LICENSE
+  selected_by: model_type
+  explicit_path_hparams: [model_dir]
+  description: 'EfficientTAM tiny checkpoint for 512 x 512 input (model_type: efficienttam_ti_512x512).'
