@@ -132,20 +132,15 @@ class ServerManager:
             return
 
         logger.info(f"Starting local gRPC server: {' '.join(cmd)} (port {self._port})")
+        # The log is set up inside the same guard as Popen: a log that cannot be
+        # opened or written is a start error, never an exception out of start().
         try:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
-            log = open(self._log_path, "ab")
-        except OSError as e:
-            self._last_error = f"Could not open the server log ({self._log_path}): {e}"
-            logger.warning(self._last_error)
-            self._process = None
-            return
-        with log:
-            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            log.write(f"\n--- server start {stamp}: {' '.join(cmd)} ---\n".encode())
-            log.flush()
-            self._log_offset = log.tell()
-            try:
+            with open(self._log_path, "ab") as log:
+                stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                log.write(f"\n--- server start {stamp}: {' '.join(cmd)} ---\n".encode())
+                log.flush()
+                self._log_offset = log.tell()
                 self._process = subprocess.Popen(
                     cmd,
                     env=_server_env(self._port),
@@ -154,11 +149,13 @@ class ServerManager:
                     stderr=subprocess.STDOUT,
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
                 )
-            except OSError as e:
-                self._last_error = f"Could not start the server ({' '.join(cmd)}): {e}"
-                logger.warning(self._last_error)
-                self._process = None
-                return
+        except OSError as e:
+            self._last_error = (
+                f"Could not start the server ({' '.join(cmd)}, log {self._log_path}): {e}"
+            )
+            logger.warning(self._last_error)
+            self._process = None
+            return
         logger.info(f"Server started (pid={self._process.pid}), log: {self._log_path}")
 
     def log_tail(self, max_lines: int = 40) -> str:

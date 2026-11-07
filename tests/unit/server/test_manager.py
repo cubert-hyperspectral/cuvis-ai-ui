@@ -408,3 +408,33 @@ def test_stop_kills_on_timeout():
     mock_process.terminate.assert_called_once()
     mock_process.kill.assert_called_once()
     assert manager._process is None
+
+
+class _FullDiskLog:
+    """A log file whose writes fail as on a full disk."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def write(self, data):
+        raise OSError(28, "No space left on device")
+
+    def close(self):
+        pass
+
+
+@patch("cuvis_ai_ui.server.manager.subprocess.Popen")
+@patch("cuvis_ai_ui.server.manager._find_server_executable")
+def test_start_handles_a_log_that_cannot_be_written(mock_find_exe, mock_popen, data_dir):
+    mock_find_exe.return_value = ["python", "-m", SERVER_MODULE]
+    manager = ServerManager()
+
+    with patch("cuvis_ai_ui.server.manager.open", create=True, return_value=_FullDiskLog()):
+        manager.start()
+
+    mock_popen.assert_not_called()
+    assert manager.process is None
+    assert "No space left on device" in manager.last_error
