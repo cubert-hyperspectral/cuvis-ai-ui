@@ -11,6 +11,7 @@ import pytest
 from unittest.mock import Mock
 
 from cuvis_ai_ui.grpc.client import CuvisAIClient
+from cuvis_ai_ui.settings.plugins import get_catalog_dir
 
 
 @pytest.fixture
@@ -234,7 +235,8 @@ def mock_grpc_server():
 
 def test_plugin_loading(mock_grpc_server):
     """Test loading plugins through gRPC client."""
-    result = mock_grpc_server.load_plugins("cuvis_ai_catalog.yaml")
+    manifest_path = get_catalog_dir() / "cuvis_ai_builtin.yaml"
+    result = mock_grpc_server.load_plugins(manifest_path)
 
     assert "loaded_plugins" in result
     assert "failed_plugins" in result
