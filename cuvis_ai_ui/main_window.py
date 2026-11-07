@@ -652,6 +652,9 @@ class MainWindow(QMainWindow):
             self._current_file = path
             self._unsaved_changes = False
             self._update_title()
+            if self._current_folder is not None and path.parent == self._current_folder:
+                self._pipeline_browser.set_folder(self._current_folder)
+                self._pipeline_browser.select(path)
             self.pipeline_saved.emit(str(path))
             self._status_bar.showMessage(f"Saved: {path}", 3000)
             logger.info(f"Saved pipeline: {path}")

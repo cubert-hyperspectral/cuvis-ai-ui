@@ -3,7 +3,8 @@
 from unittest.mock import Mock
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from cuvis_ai_ui.grpc.client import CuvisAIClient
 from cuvis_ai_ui.main_window import MainWindow
@@ -201,3 +202,47 @@ connections: []
 
     assert len(asked) == 1
     assert window.current_file == tmp_path / "one.yaml"
+
+
+def test_save_as_a_new_file_in_the_folder_shows_it_selected(window, folder, monkeypatch):
+    window.open_folder(folder)
+    new_path = folder / "four.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+
+    window.save_pipeline_as()
+
+    assert window.pipeline_browser.pipelines == [
+        folder / "four.yaml",
+        folder / "one.yaml",
+        folder / "three.yaml",
+        folder / "two.yaml",
+    ]
+    current_item = window.pipeline_browser.list_widget.currentItem()
+    assert current_item.data(Qt.ItemDataRole.UserRole) == str(new_path)
+
+
+def test_save_as_onto_an_existing_listed_file_selects_that_row(window, folder, monkeypatch):
+    window.open_folder(folder)
+    target = folder / "two.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+
+    window.save_pipeline_as()
+
+    assert window.current_file == target
+    assert (
+        window.pipeline_browser.list_widget.currentRow()
+        == window.pipeline_browser.pipelines.index(target)
+    )
+
+
+def test_clicking_the_original_row_after_save_as_opens_it_again(window, folder, monkeypatch):
+    window.open_folder(folder)
+    original = window.current_file
+    new_path = folder / "four.yaml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(new_path), ""))
+    window.save_pipeline_as()
+
+    original_row = window.pipeline_browser.pipelines.index(original)
+    window.pipeline_browser.list_widget.setCurrentRow(original_row)
+
+    assert window.current_file == original
