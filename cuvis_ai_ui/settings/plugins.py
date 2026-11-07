@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,9 @@ BUNDLED_SOURCE = "bundled"
 """``source`` of an entry that comes from the bundled catalog."""
 
 # The single-file catalog of UI 0.3/0.4; stores written then copied it whole.
+# It only ever held a plugin of one of these names.
 _LEGACY_CATALOG_FILE = "cuvis_ai_catalog.yaml"
+_LEGACY_CATALOG_PLUGINS = frozenset({"cuvis_ai_builtin", "cuvis_ai_catalog"})
 
 
 def _safe_load(stream: Any) -> Any:
@@ -65,7 +68,11 @@ def _is_bundled(entry: dict[str, Any]) -> bool:
     if entry.get("source") == BUNDLED_SOURCE:
         return True
     origin = entry.get("origin")
-    return isinstance(origin, str) and Path(origin).name == _LEGACY_CATALOG_FILE
+    return (
+        isinstance(origin, str)
+        and Path(origin).name == _LEGACY_CATALOG_FILE
+        and entry.get("name") in _LEGACY_CATALOG_PLUGINS
+    )
 
 
 def is_bundled_plugin(entry: dict[str, Any]) -> bool:
@@ -361,10 +368,14 @@ def save_plugin_entries(entries: list[dict[str, Any]]) -> None:
         "version": PLUGIN_STORE_VERSION,
         "plugins": [_storable(e) for e in normalized if e is not None],
     }
+    # Serialize before touching the file: a value JSON cannot hold must not
+    # leave a truncated store behind.
+    text = json.dumps(payload, indent=2, default=_json_text)
     path = get_plugin_store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
 
 
 def reset_plugin_entries() -> list[dict[str, Any]]:

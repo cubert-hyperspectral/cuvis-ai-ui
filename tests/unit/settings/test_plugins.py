@@ -235,6 +235,20 @@ class TestSaveLoadPluginEntries:
         assert plugins[0]["source"] == "plugin"
         assert plugins[0]["config"] == {}
 
+    def test_save_writes_yaml_dates_as_text(self, store_file):
+        """A manifest loaded with an unquoted tag: 2026-01-01 carries a date."""
+        entry = _make_entry(name="dated", config={"repo": "x", "tag": datetime.date(2026, 1, 1)})
+        save_plugin_entries([entry])
+        (loaded,) = [e for e in load_plugin_entries() if e["name"] == "dated"]
+        assert loaded["config"]["tag"] == "2026-01-01"
+
+    def test_a_failed_save_keeps_the_previous_store(self, store_file):
+        save_plugin_entries([_make_entry(name="kept")])
+        before = store_file.read_bytes()
+        with pytest.raises(TypeError):
+            save_plugin_entries([_make_entry(name="bad", config={"value": object()})])
+        assert store_file.read_bytes() == before
+
     def test_save_skips_invalid_entries(self, store_file):
         save_plugin_entries([{"name": "good"}, None, {"no_name": True}])
         data = json.loads(store_file.read_text(encoding="utf-8"))
@@ -1042,9 +1056,17 @@ class TestIsBundledPlugin:
         entry = _make_entry(name="a", source="manifest")
         assert is_bundled_plugin(entry) is False
 
-    def test_legacy_catalog_origin_is_bundled(self):
-        entry = _make_entry(name="a", source="manifest", origin="C:/old/cuvis_ai_catalog.yaml")
+    @pytest.mark.parametrize("name", ["cuvis_ai_builtin", "cuvis_ai_catalog"])
+    def test_legacy_catalog_origin_is_bundled(self, name):
+        """The old single-file catalog held one of these two plugin names."""
+        entry = _make_entry(name=name, source="manifest", origin="C:/old/cuvis_ai_catalog.yaml")
         assert is_bundled_plugin(entry) is True
+
+    def test_a_custom_plugin_from_a_file_of_that_name_is_not_bundled(self):
+        entry = _make_entry(
+            name="lab_nodes", source="manifest", origin="D:/lab/cuvis_ai_catalog.yaml"
+        )
+        assert is_bundled_plugin(entry) is False
 
     def test_matches_internal_check(self):
         from cuvis_ai_ui.settings.plugins import _is_bundled
