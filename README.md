@@ -64,8 +64,8 @@ uv run cuvis-ui --plugins-dir path/to/manifests   # register more plugin manifes
 
 With `--start-server` (or local mode with auto-start in **Tools > Connect to Server**) the UI
 starts the server itself. It uses the first of: the per-user server-venv the installer creates,
-the `.venv` of a cuvis-ai-core checkout next to this one, or its own interpreter if
-`cuvis_ai_core` imports there. The server's output goes to `server.log` in the per-user data
+`<repos>/cuvis-ai-core/cuvis-ai-core/.venv` when this checkout sits at
+`<repos>/cuvis-ai-ui/<checkout>`, or its own interpreter if `cuvis_ai_core` imports there. The server's output goes to `server.log` in the per-user data
 folder (`%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\` on Windows).
 
 ### Plugins
