@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import Mock
+from PySide6.QtCore import QStandardPaths
 from PySide6.QtWidgets import QApplication
 
 from cuvis_ai_schemas.enums import NodeCategory, NodeTag
@@ -9,6 +10,12 @@ from cuvis_ai_schemas.grpc.conversions import node_category_to_proto, node_tag_t
 
 from cuvis_ai_ui.adapters import NodeRegistry
 from cuvis_ai_ui.grpc.client import CuvisAIClient
+
+# Every writable location Qt resolves during the test run must land under
+# Qt's test-mode folder, not the real per-user config directory. This has to
+# run before any QApplication (or any settings read) exists, so it sits at
+# import time rather than inside a fixture.
+QStandardPaths.setTestModeEnabled(True)
 
 
 @pytest.fixture(scope="session")
