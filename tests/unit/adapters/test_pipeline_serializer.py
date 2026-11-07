@@ -80,6 +80,8 @@ def test_from_config_clears_graph(pipeline_serializer, sample_pipeline_config, m
     mock_node.name = Mock(return_value="test_node")
     mock_node.set_pos = Mock()
     mock_node.set_name = Mock()
+    mock_node.inputs = Mock(return_value={"cube": Mock()})
+    mock_node.outputs = Mock(return_value={"cube": Mock()})
     mock_node.input_ports = Mock(return_value=[])
     mock_node.output_ports = Mock(return_value=[])
     mock_graph.create_node.return_value = mock_node
@@ -87,6 +89,7 @@ def test_from_config_clears_graph(pipeline_serializer, sample_pipeline_config, m
     pipeline_serializer.from_config(sample_pipeline_config, mock_graph)
 
     mock_graph.clear_session.assert_called_once()
+    assert pipeline_serializer._load_failed_nodes == []
 
 
 def test_from_config_creates_nodes(pipeline_serializer, sample_pipeline_config, mock_graph):
@@ -96,6 +99,8 @@ def test_from_config_creates_nodes(pipeline_serializer, sample_pipeline_config, 
     mock_node.name = Mock(return_value="test_node")
     mock_node.set_pos = Mock()
     mock_node.set_name = Mock()
+    mock_node.inputs = Mock(return_value={"cube": Mock()})
+    mock_node.outputs = Mock(return_value={"cube": Mock()})
     mock_node.input_ports = Mock(return_value=[])
     mock_node.output_ports = Mock(return_value=[])
     mock_graph.create_node.return_value = mock_node
@@ -105,6 +110,7 @@ def test_from_config_creates_nodes(pipeline_serializer, sample_pipeline_config, 
     # Should create 2 nodes from sample config
     assert mock_graph.create_node.call_count >= 1
     assert metadata["name"] == "Test Pipeline"
+    assert pipeline_serializer._load_failed_nodes == []
 
 
 def test_parse_connection_string_valid(pipeline_serializer):
