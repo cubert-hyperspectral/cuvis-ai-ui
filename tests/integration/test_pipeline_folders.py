@@ -268,3 +268,14 @@ connections: []
 
     assert all(node.selected() for node in window.graph.all_nodes())
     assert not window.windowTitle().startswith("*")
+
+
+def test_opening_a_pipeline_frames_it(window, folder, qtbot):
+    spy = Mock(wraps=window.graph.fit_to_selection)
+    window.graph.fit_to_selection = spy
+
+    window.open_folder(folder)
+
+    qtbot.waitUntil(lambda: spy.called, timeout=1000)
+    assert not any(node.selected() for node in window.graph.all_nodes())
+    assert not window.windowTitle().startswith("*")

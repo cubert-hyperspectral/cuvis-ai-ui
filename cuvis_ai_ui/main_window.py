@@ -14,7 +14,7 @@ from typing import Any
 
 from loguru import logger
 from NodeGraphQt import NodeGraph
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -549,6 +549,9 @@ class MainWindow(QMainWindow):
         self._unsaved_changes = False
         self._update_title()
         self._pipeline_browser.select(self._current_file)
+        for node in self._graph.all_nodes():
+            node.set_property("selected", False, push_undo=False)
+        QTimer.singleShot(0, self._fit_to_view)
         self.pipeline_loaded.emit(path)
         self._status_bar.showMessage(f"Opened: {path}", 3000)
         logger.info(f"Opened pipeline: {path}")
