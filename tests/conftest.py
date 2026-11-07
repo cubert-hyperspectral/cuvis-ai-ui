@@ -108,3 +108,24 @@ def temp_pipeline_file(tmp_path, sample_pipeline_config):
         yaml.dump(sample_pipeline_config, f)
 
     return file_path
+
+
+@pytest.fixture
+def write_plugin_manifest():
+    """Factory that writes a bare plugin manifest YAML to a directory.
+
+    Returns a callable ``write_plugin_manifest(directory, name, tag="v1")`` that
+    writes ``<directory>/<name>.yaml`` and returns its path.
+    """
+
+    def _write(directory, name, tag="v1"):
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{name}.yaml"
+        path.write_text(
+            f"name: {name}\nrepo: https://example.com/{name}.git\ntag: {tag}\n"
+            "capabilities:\n  - class_name: pkg.node.Node\n",
+            encoding="utf-8",
+        )
+        return path
+
+    return _write

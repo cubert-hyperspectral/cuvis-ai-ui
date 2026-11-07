@@ -984,44 +984,37 @@ class TestBundledEntriesInStore:
 # ── collect_plugin_entries ───────────────────────────────────────────
 
 
-def _write_manifest(directory, name, tag="v1"):
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.yaml"
-    path.write_text(
-        f"name: {name}\nrepo: https://example.com/{name}.git\ntag: {tag}\n"
-        "capabilities:\n  - class_name: pkg.node.Node\n",
-        encoding="utf-8",
-    )
-    return path
-
-
 class TestCollectPluginEntries:
-    def test_later_directories_win_by_name(self, tmp_path, stub_defaults):
+    def test_later_directories_win_by_name(self, tmp_path, stub_defaults, write_plugin_manifest):
         stub_defaults(_bundled("x", tag="bundled"))
-        _write_manifest(tmp_path / "one", "x", tag="one")
-        _write_manifest(tmp_path / "one", "y", tag="one")
-        _write_manifest(tmp_path / "two", "y", tag="two")
+        write_plugin_manifest(tmp_path / "one", "x", tag="one")
+        write_plugin_manifest(tmp_path / "one", "y", tag="one")
+        write_plugin_manifest(tmp_path / "two", "y", tag="two")
         entries = collect_plugin_entries([tmp_path / "one", tmp_path / "two"])
         assert [(e["name"], e["config"]["tag"]) for e in entries] == [("x", "one"), ("y", "two")]
 
-    def test_app_plugins_dir_comes_before_extra_dirs(self, tmp_path):
-        _write_manifest(tmp_path / "app_plugins", "z", tag="app")
-        _write_manifest(tmp_path / "cli", "z", tag="cli")
+    def test_app_plugins_dir_comes_before_extra_dirs(self, tmp_path, write_plugin_manifest):
+        write_plugin_manifest(tmp_path / "app_plugins", "z", tag="app")
+        write_plugin_manifest(tmp_path / "cli", "z", tag="cli")
         assert collect_plugin_entries()[0]["config"]["tag"] == "app"
         assert collect_plugin_entries([tmp_path / "cli"])[0]["config"]["tag"] == "cli"
 
     def test_missing_directories_are_skipped(self, tmp_path):
         assert collect_plugin_entries([tmp_path / "nope"]) == []
 
-    def test_disabled_plugin_stays_disabled_when_a_directory_supplies_it(self, tmp_path):
+    def test_disabled_plugin_stays_disabled_when_a_directory_supplies_it(
+        self, tmp_path, write_plugin_manifest
+    ):
         save_plugin_entries([_make_entry(name="y", enabled=False, config={"path": "/y"})])
-        _write_manifest(tmp_path / "dir", "y")
+        write_plugin_manifest(tmp_path / "dir", "y")
         (y,) = collect_plugin_entries([tmp_path / "dir"])
         assert y["enabled"] is False
         assert y["config"]["tag"] == "v1"
 
-    def test_directory_entries_are_not_written_to_the_store(self, tmp_path, store_file):
-        _write_manifest(tmp_path / "dir", "y")
+    def test_directory_entries_are_not_written_to_the_store(
+        self, tmp_path, store_file, write_plugin_manifest
+    ):
+        write_plugin_manifest(tmp_path / "dir", "y")
         collect_plugin_entries([tmp_path / "dir"])
         assert not store_file.exists()
 

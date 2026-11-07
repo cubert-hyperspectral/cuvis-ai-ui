@@ -1135,17 +1135,6 @@ def test_remove_selected_confirmation_mentions_disabling(
 # ---------------------------------------------------------------------------
 
 
-def _write_folder_manifest(directory, name, tag="v1"):
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.yaml"
-    path.write_text(
-        f"name: {name}\nrepo: https://example.com/{name}.git\ntag: {tag}\n"
-        "capabilities:\n  - class_name: pkg.node.Node\n",
-        encoding="utf-8",
-    )
-    return path
-
-
 @pytest.fixture
 def no_bundled_catalog(tmp_path, monkeypatch):
     """Keep collect_plugin_entries from picking up the real bundled catalog, the
@@ -1167,11 +1156,11 @@ def no_bundled_catalog(tmp_path, monkeypatch):
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
 def test_folder_plugin_shows_as_read_only_row(
-    mock_load, qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+    mock_load, qapp, mock_grpc_client, tmp_path, no_bundled_catalog, write_plugin_manifest
 ):
     """A folder manifest with a unique name shows a row that isn't saved."""
     mock_load.return_value = []
-    _write_folder_manifest(tmp_path, "folder_plugin")
+    write_plugin_manifest(tmp_path, "folder_plugin")
 
     dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
 
@@ -1187,11 +1176,11 @@ def test_folder_plugin_shows_as_read_only_row(
 
 
 def test_folder_plugin_row_not_saved_on_other_toggle(
-    qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+    qapp, mock_grpc_client, tmp_path, no_bundled_catalog, write_plugin_manifest
 ):
     """Toggling a saved row does not write the folder-only row to the store."""
     save_plugin_entries([{"name": "saved_one", "enabled": True, "source": "git", "config": {}}])
-    _write_folder_manifest(tmp_path, "folder_plugin")
+    write_plugin_manifest(tmp_path, "folder_plugin")
 
     dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
     assert dialog._status_table.rowCount() == 2
@@ -1211,14 +1200,14 @@ def test_folder_plugin_row_not_saved_on_other_toggle(
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox.question")
 def test_remove_selected_skips_folder_rows(
-    mock_question, qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+    mock_question, qapp, mock_grpc_client, tmp_path, no_bundled_catalog, write_plugin_manifest
 ):
     """Remove Selected does nothing to a folder-only row even when selected."""
     from PySide6.QtWidgets import QMessageBox
 
     mock_question.return_value = QMessageBox.StandardButton.Yes
     save_plugin_entries([{"name": "saved_one", "enabled": True, "source": "git", "config": {}}])
-    _write_folder_manifest(tmp_path, "folder_plugin")
+    write_plugin_manifest(tmp_path, "folder_plugin")
 
     dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
     dialog._status_table.selectAll()
@@ -1229,14 +1218,14 @@ def test_remove_selected_skips_folder_rows(
 
 
 def test_folder_manifest_overriding_bundled_name_keeps_checkbox_working(
-    qapp, mock_grpc_client, tmp_path, no_bundled_catalog
+    qapp, mock_grpc_client, tmp_path, no_bundled_catalog, write_plugin_manifest
 ):
     """A folder manifest overriding a saved name shows the folder as source,
     but the row is still a saved entry: the checkbox still writes it."""
     save_plugin_entries(
         [{"name": "saved_one", "enabled": True, "source": "manifest", "config": {"path": "/old"}}]
     )
-    _write_folder_manifest(tmp_path, "saved_one")
+    write_plugin_manifest(tmp_path, "saved_one")
 
     dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[tmp_path])
     assert dialog._status_table.rowCount() == 1
