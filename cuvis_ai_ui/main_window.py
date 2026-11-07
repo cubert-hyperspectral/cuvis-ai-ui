@@ -398,6 +398,9 @@ class MainWindow(QMainWindow):
             widget: Widget to use as properties editor
         """
         self._properties_dock.setWidget(widget)
+        property_changed = getattr(widget, "property_changed", None)
+        if property_changed is not None:
+            property_changed.connect(self._on_property_changed)
 
     @property
     def graph(self) -> NodeGraph:
@@ -812,6 +815,12 @@ class MainWindow(QMainWindow):
 
     def _on_graph_edited(self, _index: int) -> None:
         """Mark the pipeline dirty when the graph's undo stack moves."""
+        if not self._unsaved_changes:
+            self._unsaved_changes = True
+            self._update_title()
+
+    def _on_property_changed(self, _key: str, _value: Any) -> None:
+        """Mark the pipeline dirty when the properties editor changes a value."""
         if not self._unsaved_changes:
             self._unsaved_changes = True
             self._update_title()

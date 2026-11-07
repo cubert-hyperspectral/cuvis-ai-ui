@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from cuvis_ai_ui.grpc.client import CuvisAIClient
 from cuvis_ai_ui.main_window import MainWindow
+from cuvis_ai_ui.widgets.property_editor import PropertyEditor
 
 PIPELINE = """metadata:
   name: {name}
@@ -169,3 +170,34 @@ def test_close_disconnects_the_client(window):
     assert window.close()
     client.disconnect.assert_called_once()
     window._client = None
+
+
+def test_property_edit_marks_the_pipeline_unsaved(window, tmp_path, answer):
+    with_hparam = """metadata:
+  name: {name}
+plugins: [p]
+nodes:
+  - name: a
+    class_name: p.Src
+    hparams: {{count: 1}}
+connections: []
+"""
+    for name in ("one", "two", "three"):
+        (tmp_path / f"{name}.yaml").write_text(with_hparam.format(name=name), encoding="utf-8")
+
+    editor = PropertyEditor()
+    window.set_properties_widget(editor)
+    window.open_folder(tmp_path)
+    node = window.graph.all_nodes()[0]
+    editor.set_node(node)
+
+    count_widget = editor._widgets["count"]
+    count_widget.setValue(count_widget.value() + 1)
+
+    assert window.windowTitle().startswith("*")
+
+    asked = answer(QMessageBox.StandardButton.Cancel)
+    window.pipeline_browser.list_widget.setCurrentRow(2)
+
+    assert len(asked) == 1
+    assert window.current_file == tmp_path / "one.yaml"
