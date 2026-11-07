@@ -731,17 +731,18 @@ class MainWindow(QMainWindow):
             self._server_manager.stop()
             self._server_manager = None
 
-        # Start local server if switching to local mode, unless one already listens
-        # (started outside the UI, or by an earlier run)
-        if settings["mode"] == "local" and not is_listening("localhost", port):
-            self._server_manager = ServerManager(port=port)
-            self._server_manager.start()
-            if not self._server_manager.wait_ready(timeout=SERVER_READY_TIMEOUT):
-                detail = self._server_manager.last_error or (
-                    "The local gRPC server did not become ready in time."
-                )
-                QMessageBox.warning(self, "Server Start Warning", detail)
+        # Local mode means this machine. Start a server unless one already listens
+        # (started outside the UI, or by an earlier run).
+        if settings["mode"] == "local":
             host = "localhost"
+            if not is_listening(host, port):
+                self._server_manager = ServerManager(port=port)
+                self._server_manager.start()
+                if not self._server_manager.wait_ready(timeout=SERVER_READY_TIMEOUT):
+                    detail = self._server_manager.last_error or (
+                        "The local gRPC server did not become ready in time."
+                    )
+                    QMessageBox.warning(self, "Server Start Warning", detail)
 
         # Close old client
         if self._client is not None:

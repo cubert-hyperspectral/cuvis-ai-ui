@@ -81,3 +81,24 @@ def test_reconnect_shows_the_manager_error_when_the_server_is_not_ready(
 
     warning_call = mock_messagebox.warning.call_args
     assert "the server process exited" in warning_call.args[2]
+
+
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
+def test_reconnect_in_local_mode_connects_to_localhost(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, qtbot
+):
+    """Local mode means this machine, even when the dialog still holds a remote host."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = {**_local_settings(), "host": "remote.example"}
+
+    window._show_connection_dialog()
+
+    mock_is_listening.assert_called_once_with("localhost", 50051)
+    assert mock_client_cls.call_args.kwargs["host"] == "localhost"
