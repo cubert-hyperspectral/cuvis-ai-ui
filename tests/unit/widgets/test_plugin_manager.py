@@ -11,7 +11,11 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
-from cuvis_ai_ui.settings.plugins import load_plugin_entries, save_plugin_entries
+from cuvis_ai_ui.settings.plugins import (
+    collect_plugin_entries,
+    load_plugin_entries,
+    save_plugin_entries,
+)
 from cuvis_ai_ui.widgets.plugin_manager import (
     PluginManagerDialog,
     SessionDialog,
@@ -1217,7 +1221,7 @@ def test_remove_selected_skips_folder_rows(
     assert "folder_plugin" not in saved_names
 
 
-def test_folder_manifest_overriding_bundled_name_keeps_checkbox_working(
+def test_folder_manifest_overriding_a_saved_name_keeps_checkbox_working(
     qapp, mock_grpc_client, tmp_path, no_bundled_catalog, write_plugin_manifest
 ):
     """A folder manifest overriding a saved name shows the folder as source,
@@ -1239,6 +1243,42 @@ def test_folder_manifest_overriding_bundled_name_keeps_checkbox_working(
 
     saved = load_plugin_entries()
     assert any(e["name"] == "saved_one" and e["enabled"] is False for e in saved)
+
+
+def test_folder_manifest_overriding_a_bundled_name_keeps_its_enabled_flag(
+    qapp, mock_grpc_client, tmp_path, monkeypatch, write_plugin_manifest
+):
+    """A folder manifest named like a bundled plugin shows the folder as its
+    source. Unchecking the row disables the bundled entry in the store, and the
+    plugin set registered afterwards still carries the folder's config."""
+    bundled = {
+        "name": "bundled_one",
+        "enabled": True,
+        "source": "bundled",
+        "config": {"repo": "https://example.com/bundled.git", "tag": "v0"},
+        "origin": None,
+    }
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_default_plugin_entries", lambda: [dict(bundled)]
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_plugin_store_path", lambda: tmp_path / "plugins.json"
+    )
+    monkeypatch.setattr(
+        "cuvis_ai_ui.settings.plugins.get_user_plugins_dir", lambda: tmp_path / "unused_app_plugins"
+    )
+    folder = tmp_path / "folder"
+    manifest = write_plugin_manifest(folder, "bundled_one", tag="v9")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client, extra_dirs=[folder])
+    assert dialog._status_table.rowCount() == 1
+    assert str(manifest) in dialog._status_table.item(0, STATUS_COL_SOURCE).text()
+    dialog._status_table.item(0, STATUS_COL_LOAD).setCheckState(Qt.CheckState.Unchecked)
+
+    (entry,) = collect_plugin_entries([folder])
+    assert entry["enabled"] is False
+    assert entry["config"]["tag"] == "v9"
+    assert entry["origin"] == str(manifest)
 
 
 def test_no_extra_dirs_behaves_as_before(qapp, mock_grpc_client, no_bundled_catalog):

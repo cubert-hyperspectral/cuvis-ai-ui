@@ -158,8 +158,6 @@ class PipelineSerializer:
             logger.error(f"Pipeline configuration validation failed: {e}")
             raise ValueError(f"Invalid pipeline configuration: {e}") from e
 
-        self.loaded_plugins = []
-
         self.loaded_plugins = list(pipeline_config.plugins or [])
 
         # Note: Connection validation is done during graph construction
