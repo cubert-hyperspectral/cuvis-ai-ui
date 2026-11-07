@@ -524,7 +524,12 @@ class PluginManagerDialog(QDialog):
 
             capabilities = config.get("capabilities") if isinstance(config, dict) else None
             if isinstance(capabilities, list) and capabilities:
-                provided_text = str(len(capabilities))
+                node_capabilities = [
+                    c
+                    for c in capabilities
+                    if not (isinstance(c, dict) and c.get("kind") not in (None, "node"))
+                ]
+                provided_text = str(len(node_capabilities))
             elif entry.get("name") in loaded_node_counts:
                 provided_text = str(loaded_node_counts.get(entry.get("name"), 0))
             else:

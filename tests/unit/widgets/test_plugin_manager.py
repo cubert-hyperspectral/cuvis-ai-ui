@@ -429,6 +429,63 @@ def test_refresh_status_provides_column_shows_count(
 
 @patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
 @patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
+def test_refresh_status_provides_column_skips_data_module_capabilities(
+    mock_load, mock_collect, qapp, mock_grpc_client
+):
+    """A manifest whose capabilities are all data modules shows 0 node capabilities."""
+    entries = [
+        {
+            "name": "cuvis_ai_dataloader",
+            "enabled": True,
+            "source": "git",
+            "config": {
+                "capabilities": [
+                    {"class_name": "pkg.data.Cu3sDataModule", "kind": "data_module"},
+                    {"class_name": "pkg.data.MultiCu3sDataModule", "kind": "data_module"},
+                ]
+            },
+        },
+    ]
+    mock_load.return_value = entries
+    mock_collect.return_value = entries
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+
+    provided = dialog._status_table.item(0, STATUS_COL_PROVIDES).text()
+    assert provided == "0"
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
+def test_refresh_status_provides_column_counts_only_node_capabilities(
+    mock_load, mock_collect, qapp, mock_grpc_client
+):
+    """A mixed manifest counts only its node capabilities, not its data modules."""
+    entries = [
+        {
+            "name": "mixed_plugin",
+            "enabled": True,
+            "source": "git",
+            "config": {
+                "capabilities": [
+                    {"class_name": "pkg.node.NodeA"},
+                    {"class_name": "pkg.node.NodeB", "kind": "node"},
+                    {"class_name": "pkg.data.SomeDataModule", "kind": "data_module"},
+                ]
+            },
+        },
+    ]
+    mock_load.return_value = entries
+    mock_collect.return_value = entries
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+
+    provided = dialog._status_table.item(0, STATUS_COL_PROVIDES).text()
+    assert provided == "2"
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.collect_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries")
 def test_refresh_status_provides_column_shows_auto(mock_load, mock_collect, qapp, mock_grpc_client):
     """Test that provided nodes column shows 'auto' when no provides list."""
     entries = [
