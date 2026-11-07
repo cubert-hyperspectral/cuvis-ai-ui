@@ -8,12 +8,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+import socket
+
 import cuvis_ai_ui.server.manager as manager_module
 from cuvis_ai_ui.server.manager import (
     SERVER_MODULE,
     ServerManager,
     _find_server_executable,
     _server_env,
+    is_listening,
 )
 
 
@@ -102,6 +105,31 @@ def test_frozen_build_puts_bundled_tools_on_path(tmp_path, monkeypatch):
 def test_dev_run_keeps_path(monkeypatch):
     monkeypatch.setenv("PATH", "C:/existing")
     assert _server_env(50051)["PATH"] == "C:/existing"
+
+
+# ---------------------------------------------------------------------------
+# is_listening
+# ---------------------------------------------------------------------------
+
+
+def test_is_listening_true_against_a_real_listening_socket():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("localhost", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    try:
+        assert is_listening("localhost", port)
+    finally:
+        server.close()
+
+
+def test_is_listening_false_against_a_closed_port():
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("localhost", 0))
+    port = probe.getsockname()[1]
+    probe.close()  # Nothing listens on this port once we release it.
+
+    assert not is_listening("localhost", port, timeout=0.2)
 
 
 # ---------------------------------------------------------------------------

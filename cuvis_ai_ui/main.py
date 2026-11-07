@@ -5,7 +5,6 @@ palette, property editor) connected to a cuvis-ai-core server. PATH is a
 pipeline YAML file or a folder of pipelines.
 """
 
-import socket
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,7 +16,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .grpc.client import CuvisAIClient
 from .main_window import MainWindow
-from .server import ServerManager
+from .server import SERVER_READY_TIMEOUT, ServerManager, is_listening
 from .settings import (
     collect_plugin_entries,
     get_plugin_store_path,
@@ -26,17 +25,6 @@ from .settings import (
 )
 from .widgets import NodePalette, PluginManagerDialog, PropertyEditor
 from .workspace import plugin_dirs_for, register_plugins, resolve_launch_target
-
-SERVER_READY_TIMEOUT = 120.0
-
-
-def _server_is_listening(host: str, port: int, timeout: float = 1.0) -> bool:
-    """Fast TCP probe so we can skip the gRPC retry loop when no server is up."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
 
 
 def _start_local_server(app: QApplication, port: int) -> ServerManager:
@@ -71,7 +59,7 @@ def _start_local_server(app: QApplication, port: int) -> ServerManager:
 
 def _connect(host: str, port: int) -> CuvisAIClient | None:
     """Connect to the server, or explain why not and return None."""
-    if not _server_is_listening(host, port):
+    if not is_listening(host, port):
         logger.warning(f"No server listening on {host}:{port}; skipping connect.")
         QMessageBox.warning(
             None,
@@ -157,7 +145,7 @@ def main(
 
     server_manager: ServerManager | None = None
     wants_server = start_server or conn.get("auto_start", False)
-    if conn["mode"] == "local" and wants_server and not _server_is_listening(host, port):
+    if conn["mode"] == "local" and wants_server and not is_listening(host, port):
         server_manager = _start_local_server(app, port)
 
     client = _connect(host, port)

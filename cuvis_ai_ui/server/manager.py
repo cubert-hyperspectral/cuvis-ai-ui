@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import importlib.util
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -14,6 +15,18 @@ import grpc
 from loguru import logger
 
 SERVER_MODULE = "cuvis_ai_core.grpc.production_server"
+
+# How long the UI waits for a freshly started local server to become ready.
+SERVER_READY_TIMEOUT = 120.0
+
+
+def is_listening(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Fast TCP probe so callers can skip a gRPC retry loop when nothing is up."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def user_data_dir() -> Path:

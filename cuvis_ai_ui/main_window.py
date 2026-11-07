@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from .adapters import NodeRegistry, PipelineSerializer
 from .grpc.client import CuvisAIClient
-from .server import ServerManager
+from .server import SERVER_READY_TIMEOUT, ServerManager, is_listening
 from .widgets.canvas_drop_target import CanvasDropTarget
 from .widgets.connection_dialog import ConnectionDialog
 from .widgets.pipeline_browser import PipelineBrowser
@@ -731,18 +731,16 @@ class MainWindow(QMainWindow):
             self._server_manager.stop()
             self._server_manager = None
 
-        # Start local server if switching to local mode
-        if settings["mode"] == "local" and (
-            self._server_manager is None or not self._server_manager.is_running()
-        ):
+        # Start local server if switching to local mode, unless one already listens
+        # (started outside the UI, or by an earlier run)
+        if settings["mode"] == "local" and not is_listening("localhost", port):
             self._server_manager = ServerManager(port=port)
             self._server_manager.start()
-            if not self._server_manager.wait_ready(timeout=30):
-                QMessageBox.warning(
-                    self,
-                    "Server Start Warning",
-                    "The local gRPC server did not become ready in time.",
+            if not self._server_manager.wait_ready(timeout=SERVER_READY_TIMEOUT):
+                detail = self._server_manager.last_error or (
+                    "The local gRPC server did not become ready in time."
                 )
+                QMessageBox.warning(self, "Server Start Warning", detail)
             host = "localhost"
 
         # Close old client
