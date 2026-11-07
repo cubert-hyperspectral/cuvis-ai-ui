@@ -369,14 +369,18 @@ class PipelineSerializer:
         input_ports: set[str] | None,
         output_ports: set[str] | None,
     ) -> bool:
-        """Add the ports connections name but the node's class does not declare.
+        """Give a node whose class declares no ports the ports its connections name.
 
         A plugin manifest may list a class without port specs; its node would
-        otherwise come up portless and lose every connection.
+        otherwise come up portless and lose every connection. A class that
+        declares ports keeps exactly those: a connection naming another port is
+        broken and is reported as a missing connection.
 
         Returns:
             True if any port was added.
         """
+        if node.inputs() or node.outputs():
+            return False
         added = False
         for name in sorted(set(input_ports or ()) - set(node.inputs())):
             spec = _inferred_port_spec(is_input=True)

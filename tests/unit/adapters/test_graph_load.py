@@ -300,6 +300,22 @@ def test_class_of_a_missing_plugin_is_not_borrowed_from_another_plugin(graph):
     assert saved["plugins"] == ["wanted"]
 
 
+def test_a_class_with_ports_gets_no_port_from_a_misnamed_connection(graph):
+    """Ports come from connections only for a class whose manifest declares
+    none; for a class that declares ports, a connection naming another port is
+    a broken connection and is reported as one."""
+    infos = [_info("p.Src", outputs=["out"]), _info("p.Sink", inputs=["cube"])]
+    config = _config(
+        [("src", "p.Src"), ("sink", "p.Sink")], [("src.outputs.out", "sink.inputs.cubee")]
+    )
+    serializer = _load(graph, infos, config)
+
+    sink = next(n for n in graph.all_nodes() if n.name() == "sink")
+    assert list(sink.inputs()) == ["cube"]
+    assert serializer.last_missing_connections == ["src.outputs.out -> sink.inputs.cubee"]
+    assert not any("Ports taken from connections" in w for w in serializer.last_load_warnings)
+
+
 def test_bare_class_name_of_a_missing_plugin_is_not_borrowed(graph):
     """A bare class name only resolves within the pipeline's declared plugins,
     so a same-named class of another plugin neither replaces the node nor the
