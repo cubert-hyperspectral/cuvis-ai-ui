@@ -284,7 +284,11 @@ class PipelineSerializer:
         hparams = node_config.get("hparams", {})
         execution_stages = node_config.get("execution_stages", ["always"])
 
-        # Get the node class from registry
+        # Get the node class from registry. resolve_class_path tolerates a
+        # class_path naming the defining module (cuvis-ai's own save format)
+        # while the registry holds the plugin manifest's package export; the
+        # registered path can then differ from the yaml's own string.
+        resolved_class_path = self.node_registry.resolve_class_path(class_path)
         node_class = self.node_registry.get_node_class(class_path)
         known_class = node_class is not None
 
@@ -316,6 +320,17 @@ class PipelineSerializer:
         try:
             node = graph.create_node(node_type)
             node.set_name(node_name)
+
+            # A node resolved by last-segment fallback keeps the yaml's own
+            # class_name, so a load-then-save round trip writes the pipeline
+            # back unchanged instead of normalizing it to the registered path.
+            if (
+                known_class
+                and resolved_class_path is not None
+                and resolved_class_path != class_path
+                and hasattr(node, "_cuvis_class_path")
+            ):
+                node._cuvis_class_path = class_path
 
             # Set cuvis-specific attributes
             if hasattr(node, "cuvis_hparams"):

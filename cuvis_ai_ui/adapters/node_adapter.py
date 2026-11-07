@@ -373,27 +373,68 @@ class NodeRegistry:
         for node_info in nodes:
             self.register_node(node_info)
 
+    def resolve_class_path(self, class_path: str) -> str | None:
+        """Resolve a class path to a registered one, tolerating the defining module.
+
+        A pipeline saved by cuvis-ai names a plugin class by its defining
+        module (``pkg.node.module.Cls``), while the plugin manifest may list
+        the package export (``pkg.node.Cls``). This mirrors the matching
+        cuvis-ai-core's server-side registry does: an exact registered path is
+        returned first; otherwise, for a dotted path, the single registered
+        path sharing its last segment; if several share it, the single one of
+        those also sharing the query's top-level package; otherwise ``None``.
+
+        Args:
+            class_path: Full class import path, exact or a defining-module path.
+
+        Returns:
+            The matching registered class path, or ``None``.
+        """
+        if class_path in self._nodes:
+            return class_path
+        if "." not in class_path:
+            return None
+
+        last_segment = class_path.rsplit(".", 1)[-1]
+        candidates = [p for p in self._nodes if p.rsplit(".", 1)[-1] == last_segment]
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            top_level = class_path.split(".", 1)[0]
+            same_package = [p for p in candidates if p.split(".", 1)[0] == top_level]
+            if len(same_package) == 1:
+                return same_package[0]
+        return None
+
     def get_node_info(self, class_path: str) -> NodeInfoDict | None:
         """Get node info by class path.
 
         Args:
-            class_path: Full class import path
+            class_path: Full class import path, exact or a defining-module path
+                resolved via :meth:`resolve_class_path`.
 
         Returns:
             Node info dictionary or None
         """
-        return self._nodes.get(class_path)
+        resolved = self.resolve_class_path(class_path)
+        if resolved is None:
+            return None
+        return self._nodes.get(resolved)
 
     def get_node_class(self, class_path: str) -> type[BaseNode] | None:
         """Get NodeGraphQt node class by class path.
 
         Args:
-            class_path: Full class import path
+            class_path: Full class import path, exact or a defining-module path
+                resolved via :meth:`resolve_class_path`.
 
         Returns:
             Node class or None
         """
-        return self._node_classes.get(class_path)
+        resolved = self.resolve_class_path(class_path)
+        if resolved is None:
+            return None
+        return self._node_classes.get(resolved)
 
     def get_all_nodes(self) -> list[NodeInfoDict]:
         """Get all registered node infos.

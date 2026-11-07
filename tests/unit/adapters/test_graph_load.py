@@ -158,6 +158,29 @@ def test_two_spec_less_instances_each_keep_only_their_own_ports(graph):
     assert set(bare2.outputs()) == {"beta"}
 
 
+def test_class_path_resolved_by_last_segment_round_trips(graph):
+    """A pipeline naming a class by its defining module, while the registry
+    holds the package export, loads as a real node (not a placeholder) and
+    saves back with the YAML's original class_name."""
+    infos = [_info("p_pkg.node.Cls", inputs=["cube"], outputs=["mask"])]
+    config = _config(
+        [("n", "p_pkg.node.module.Cls")],
+        [],
+    )
+    serializer = _load(graph, infos, config)
+
+    assert serializer._load_missing_nodes == set()
+    assert not any("Missing node classes" in w for w in serializer.last_load_warnings)
+
+    node = next(iter(graph.all_nodes()))
+    assert set(node.inputs()) == {"cube"}
+    assert set(node.outputs()) == {"mask"}
+
+    saved = serializer.to_config(graph)
+    assert saved["nodes"][0]["class_name"] == "p_pkg.node.module.Cls"
+    assert saved["plugins"] == ["p"]
+
+
 def test_placeholder_fan_in_keeps_every_edge(graph):
     infos = [_info("p.Src", outputs=["out"])]
     serializer = _load(graph, infos, _config(FAN_IN, FAN_IN_EDGES))
