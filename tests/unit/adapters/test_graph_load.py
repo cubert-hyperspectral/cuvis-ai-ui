@@ -250,3 +250,16 @@ def test_register_with_graph_replaces_a_changed_node_type(graph):
 
     node = graph.create_node(registry.get_node_class("p.Node").type_)
     assert list(node.inputs()) == ["new"]
+
+
+def test_to_config_core_builtin_needs_no_plugin(graph):
+    """A core built-in carries an empty plugin_name: it needs no declaration and
+    is not reported as a node whose owner is unknown."""
+    infos = [_info("p.Src", outputs=["out"]), _info("core.Builtin", inputs=["x"], plugin="")]
+    config = _config([("a", "p.Src"), ("b", "core.Builtin")], [("a.outputs.out", "b.inputs.x")])
+    serializer = _load(graph, infos, config)
+
+    saved = serializer.to_config(graph)
+
+    assert saved["plugins"] == ["p"]
+    assert not any("owning plugin" in w for w in serializer.last_load_warnings)

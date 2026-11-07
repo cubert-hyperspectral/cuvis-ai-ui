@@ -680,9 +680,11 @@ class PipelineSerializer:
         track of a class between load and save (a folder switch clears and
         re-registers the shared registry while the graph itself is kept), so a
         node whose class the registry no longer knows falls back to the plugin
-        name it stored when it was created (``cuvis_plugin_name``). A node with
-        neither — a placeholder for a class unknown even at load time — can't be
-        attributed at all; it's recorded as a load warning, and the plugins the
+        name it stored when it was created (``cuvis_plugin_name``). A core
+        built-in is known to the registry with an empty ``plugin_name`` and needs
+        no declaration. A node with neither a registry entry nor a stored owner
+        (a placeholder for a class unknown even at load time) can't be
+        attributed; it's recorded as a load warning, and the plugins the
         pipeline declared when it was loaded (:attr:`loaded_plugins`) are kept
         instead so nothing declared is silently lost.
 
@@ -699,14 +701,15 @@ class PipelineSerializer:
         unknown: list[str] = []
         for node, node_cfg in zip(graph_nodes, nodes_list):
             info = self.node_registry.get_node_info(node_cfg.class_name)
-            plugin_name = info.get("plugin_name") if info is not None else None
-            if not plugin_name:
+            if info is not None:
+                plugin_name = info.get("plugin_name") or ""
+            else:
                 owner = getattr(node, "cuvis_plugin_name", "")
                 plugin_name = owner if isinstance(owner, str) else ""
+                if not plugin_name:
+                    unknown.append(node_cfg.class_name)
             if plugin_name:
                 plugin_names.add(plugin_name)
-            else:
-                unknown.append(node_cfg.class_name)
         if unknown:
             plugin_names.update(self.loaded_plugins)
             self.last_load_warnings.append(
