@@ -147,14 +147,18 @@ class PipelineSerializer:
         self._load_failed_connections = 0
         self._load_inferred_port_classes = set()
         self._placeholder_class_cache = {}
-        self.loaded_plugins = []
 
-        # Validate configuration with Pydantic
+        # Validate configuration with Pydantic. Do this before touching any
+        # state that belongs to the graph still on screen: a config that
+        # fails validation leaves that graph (and what it needs declared)
+        # untouched, so the caller's existing pipeline is still intact.
         try:
             pipeline_config = PipelineConfig.from_dict(config)
         except Exception as e:
             logger.error(f"Pipeline configuration validation failed: {e}")
             raise ValueError(f"Invalid pipeline configuration: {e}") from e
+
+        self.loaded_plugins = []
 
         self.loaded_plugins = list(pipeline_config.plugins or [])
 

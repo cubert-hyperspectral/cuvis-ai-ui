@@ -252,6 +252,20 @@ def test_register_with_graph_replaces_a_changed_node_type(graph):
     assert list(node.inputs()) == ["new"]
 
 
+def test_from_config_failed_validation_keeps_the_open_pipelines_plugins(graph):
+    """A load that fails Pydantic validation must not wipe the plugins the
+    graph still on screen needs: to_config has to keep declaring them."""
+    config = _config([("ghost", "missing.pkg.Ghost")], [], plugins=("q",))
+    serializer = _load(graph, [], config)
+    assert serializer.to_config(graph)["plugins"] == ["q"]
+
+    with pytest.raises(ValueError):
+        serializer.from_config({"nodes": [{"name": "bad"}]}, graph)
+
+    saved = serializer.to_config(graph)
+    assert saved["plugins"] == ["q"]
+
+
 def test_to_config_core_builtin_needs_no_plugin(graph):
     """A core built-in carries an empty plugin_name: it needs no declaration and
     is not reported as a node whose owner is unknown."""
