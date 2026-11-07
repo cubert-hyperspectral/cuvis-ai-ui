@@ -27,7 +27,7 @@ set "INSTALLER_DIR=%PROJECT_ROOT%\installer"
 set "CORE_ROOT=%PROJECT_ROOT%\..\..\cuvis-ai-core\cuvis-ai-core"
 if defined CUVIS_AI_CORE_ROOT set "CORE_ROOT=%CUVIS_AI_CORE_ROOT%"
 if not exist "%CORE_ROOT%\pyproject.toml" (
-    echo ERROR: no cuvis-ai-core checkout at %CORE_ROOT%
+    echo ERROR: no cuvis-ai-core checkout at "%CORE_ROOT%"
     echo        Clone it there or set CUVIS_AI_CORE_ROOT.
     exit /b 1
 )
