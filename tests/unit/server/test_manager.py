@@ -90,7 +90,8 @@ def test_frozen_build_puts_bundled_tools_on_path(tmp_path, monkeypatch):
         (app / tool / "bin").mkdir(parents=True)
     monkeypatch.setattr(manager_module.sys, "frozen", True, raising=False)
     monkeypatch.setattr(manager_module.sys, "executable", str(app / "cuvis-ui.exe"))
-    monkeypatch.setenv("PATH", "C:/existing")
+    existing = str(tmp_path / "existing")
+    monkeypatch.setenv("PATH", existing)
 
     env = _server_env(50052)
 
@@ -98,7 +99,7 @@ def test_frozen_build_puts_bundled_tools_on_path(tmp_path, monkeypatch):
     assert env["PATH"].split(os.pathsep) == [
         str(app / "ffmpeg" / "bin"),
         str(app / "graphviz" / "bin"),
-        "C:/existing",
+        existing,
     ]
 
 
