@@ -6,7 +6,18 @@ from pathlib import Path
 from click.testing import CliRunner
 
 import scripts.regenerate_catalog as regenerate_catalog
-from scripts.regenerate_catalog import main
+from scripts.regenerate_catalog import list_manifests, main
+
+
+def test_list_manifests_keeps_names_with_spaces(monkeypatch):
+    def fake_git(repo, *args):
+        return b"a.yaml\0custom plugin.yaml\0README.md\0"
+
+    monkeypatch.setattr(regenerate_catalog, "_git", fake_git)
+
+    names = list_manifests(Path("."), "v9.9.9", "cuvis_ai/configs/plugins")
+
+    assert names == ["a.yaml", "custom plugin.yaml"]
 
 
 def test_git_failure_is_reported_as_a_click_error(monkeypatch):

@@ -62,7 +62,8 @@ def _git(repo: Path, *args: str) -> bytes:
 
 def list_manifests(repo: Path, tag: str, manifest_dir: str) -> list[str]:
     """Return the manifest file names in ``manifest_dir`` at ``tag``."""
-    names = _git(repo, "ls-tree", "--name-only", f"{tag}:{manifest_dir}").decode().split()
+    output = _git(repo, "ls-tree", "-z", "--name-only", f"{tag}:{manifest_dir}")
+    names = output.decode().split("\0")[:-1]
     return sorted(n for n in names if n.endswith((".yaml", ".yml")))
 
 
