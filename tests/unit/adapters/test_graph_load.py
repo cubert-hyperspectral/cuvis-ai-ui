@@ -252,6 +252,54 @@ def test_register_with_graph_replaces_a_changed_node_type(graph):
     assert list(node.inputs()) == ["new"]
 
 
+def test_register_with_graph_drops_node_types_of_removed_plugins(graph):
+    """A plugin that is gone from the catalog (folder switch, disabled in the
+    Plugin Manager) must not stay creatable through the canvas's Tab search."""
+    registry = NodeRegistry()
+    registry.register_nodes(
+        [_info("p.Keep", inputs=["x"]), _info("q.Gone", inputs=["x"], plugin="q")]
+    )
+    registry.register_with_graph(graph)
+    gone_type = registry.get_node_class("q.Gone").type_
+    assert gone_type in graph.registered_nodes()
+
+    registry.clear()
+    registry.register_nodes([_info("p.Keep", inputs=["x"])])
+    registry.register_with_graph(graph)
+
+    registered = graph.registered_nodes()
+    assert gone_type not in registered
+    assert registry.get_node_class("p.Keep").type_ in registered
+    assert all(graph.node_factory.names.values())
+
+
+def test_register_with_graph_keeps_placeholder_node_types(graph):
+    """Placeholder types the serializer registered for unknown classes are not
+    the registry's to remove."""
+    config = _config([("ghost", "missing.pkg.Ghost")], [], plugins=("q",))
+    serializer = _load(graph, [_info("p.Src", outputs=["out"])], config)
+    before = set(graph.registered_nodes())
+
+    serializer.node_registry.register_with_graph(graph)
+
+    assert before <= set(graph.registered_nodes())
+
+
+def test_class_of_a_missing_plugin_is_not_borrowed_from_another_plugin(graph):
+    """A node whose own plugin is missing loads as a placeholder instead of
+    resolving to another plugin's class of the same name, and saving keeps the
+    pipeline's declared plugins instead of rewriting them to that plugin."""
+    infos = [_info("other_pkg.node.Transform", inputs=["x"], plugin="other")]
+    config = _config([("n", "wanted_pkg.node.Transform")], [], plugins=("wanted",))
+    serializer = _load(graph, infos, config, known_plugins={"wanted", "other"})
+
+    assert serializer._load_missing_nodes == {"wanted_pkg.node.Transform"}
+
+    saved = serializer.to_config(graph)
+    assert saved["nodes"][0]["class_name"] == "wanted_pkg.node.Transform"
+    assert saved["plugins"] == ["wanted"]
+
+
 def test_from_config_failed_validation_keeps_the_open_pipelines_plugins(graph):
     """A load that fails Pydantic validation must not wipe the plugins the
     graph still on screen needs: to_config has to keep declaring them."""

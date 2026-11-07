@@ -451,6 +451,28 @@ def test_resolve_class_path_ambiguous_unresolved_returns_none():
     assert resolved is None
 
 
+def test_resolve_class_path_does_not_borrow_a_class_from_another_package():
+    """A dotted path whose own package is not registered stays unresolved, even
+    when another package registers the only class of that name: borrowing it
+    would attribute the node to the wrong plugin."""
+    registry = NodeRegistry()
+    registry.register_node(
+        {
+            "class_name": "DiceLoss",
+            "full_path": "cuvis_ai_unet.node.losses.DiceLoss",
+            "source": "plugin",
+            "plugin_name": "unet",
+            "input_specs": [],
+            "output_specs": [],
+            "category": 0,
+            "tags": [],
+            "icon_svg": b"",
+        }
+    )
+    assert registry.resolve_class_path("cuvis_ai.node.losses.DiceLoss") is None
+    assert registry.resolve_class_path("DiceLoss") == "cuvis_ai_unet.node.losses.DiceLoss"
+
+
 def test_resolve_class_path_not_found_returns_none(node_registry):
     """A path with no last-segment match returns None."""
     assert node_registry.resolve_class_path("nonexistent.path.Nope") is None
