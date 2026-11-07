@@ -34,7 +34,7 @@ MANIFEST_DIR = "cuvis_ai/configs/plugins"
 
 README = """# Bundled plugin catalog
 
-{count} released plugin manifests mirrored from cuvis-ai `{tag}` (`{manifest_dir}/`),
+{count} released plugin {manifests} mirrored from cuvis-ai `{tag}` (`{manifest_dir}/`),
 each pinned to a git repo and tag. The UI registers each one with the server at
 startup; the node palette is built from their `capabilities`. Manifests with a
 local `path:` source are not bundled; load those from the app's plugins folder or
@@ -96,7 +96,12 @@ def mirror(repo: Path, tag: str, manifest_dir: str, catalog: Path) -> tuple[list
             stale.unlink()
     for name, blob in blobs.items():
         (catalog / name).write_bytes(blob)
-    readme = README.format(count=len(blobs), tag=tag, manifest_dir=manifest_dir)
+    readme = README.format(
+        count=len(blobs),
+        manifests="manifest" if len(blobs) == 1 else "manifests",
+        tag=tag,
+        manifest_dir=manifest_dir,
+    )
     (catalog / "README.md").write_text(readme, encoding="utf-8")
     return sorted(blobs), skipped
 

@@ -31,7 +31,7 @@ def resolve_launch_target(path: str | Path | None) -> tuple[Path | None, Path | 
     """
     if path is None:
         return None, None
-    target = Path(path)
+    target = Path(path).absolute()
     if target.is_dir():
         pipelines = list_pipelines(target)
         return target, pipelines[0] if pipelines else None

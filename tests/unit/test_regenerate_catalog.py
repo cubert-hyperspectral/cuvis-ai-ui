@@ -45,7 +45,7 @@ def test_mirror_copies_released_manifests_and_drops_the_rest(tmp_path, monkeypat
     assert not (catalog / "local.yaml").exists()
     assert not (catalog / "old.yaml").exists()
     readme = (catalog / "README.md").read_text(encoding="utf-8")
-    assert "1 released plugin manifests mirrored from cuvis-ai `v1`" in readme
+    assert "1 released plugin manifest mirrored from cuvis-ai `v1`" in readme
 
 
 def test_git_failure_is_reported_as_a_click_error(monkeypatch):

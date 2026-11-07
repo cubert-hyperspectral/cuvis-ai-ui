@@ -64,6 +64,19 @@ class TestResolveLaunchTarget:
         pipe = _touch(tmp_path / "a.yaml")
         assert resolve_launch_target(pipe) == (None, pipe)
 
+    def test_relative_paths_come_back_absolute(self, tmp_path, monkeypatch):
+        """The window compares the open file with absolute browser and Save As
+        paths, so a relative cuvis-ui PATH is made absolute here."""
+        (tmp_path / "pipes").mkdir()
+        (tmp_path / "pipes" / "a.yaml").write_text("nodes: []\n", encoding="utf-8")
+        (tmp_path / "one.yaml").write_text("nodes: []\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+
+        folder, first = resolve_launch_target("pipes")
+        assert folder == (tmp_path / "pipes").absolute()
+        assert first == (tmp_path / "pipes" / "a.yaml").absolute()
+        assert resolve_launch_target("one.yaml") == (None, (tmp_path / "one.yaml").absolute())
+
     def test_missing_path_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             resolve_launch_target(tmp_path / "nope")
