@@ -158,24 +158,31 @@ class PipelineSerializer:
         # Clear existing graph
         graph.clear_session()
 
-        # Pre-scan connections for the port names each class is wired through.
-        # A placeholder for an unknown class, and a known class whose manifest
-        # declares no ports, get their ports from these hints, so the topology
-        # survives the load.
+        # Pre-scan connections for the port names each node is wired through.
+        # A placeholder for an unknown class shares one synthesized class across
+        # every instance of that class path (NodeGraphQt forbids a second
+        # registration of the same type), so its ports must be the union over
+        # all those instances. A known class whose manifest declares no ports
+        # gets its own node's ports only, so two spec-less instances wired
+        # through different connections don't leak ports into each other.
         name_to_class_path = {n.name: n.class_name for n in pipeline_config.nodes}
-        input_port_hints: dict[str, set[str]] = {}
-        output_port_hints: dict[str, set[str]] = {}
+        input_port_hints_by_node: dict[str, set[str]] = {}
+        output_port_hints_by_node: dict[str, set[str]] = {}
+        input_port_hints_by_class: dict[str, set[str]] = {}
+        output_port_hints_by_class: dict[str, set[str]] = {}
         for conn in pipeline_config.connections:
             src = self._parse_connection_string(conn.source)
             tgt = self._parse_connection_string(conn.target)
             if src and src[1] == "outputs":
+                output_port_hints_by_node.setdefault(src[0], set()).add(src[2])
                 cp = name_to_class_path.get(src[0])
                 if cp:
-                    output_port_hints.setdefault(cp, set()).add(src[2])
+                    output_port_hints_by_class.setdefault(cp, set()).add(src[2])
             if tgt and tgt[1] == "inputs":
+                input_port_hints_by_node.setdefault(tgt[0], set()).add(tgt[2])
                 cp = name_to_class_path.get(tgt[0])
                 if cp:
-                    input_port_hints.setdefault(cp, set()).add(tgt[2])
+                    input_port_hints_by_class.setdefault(cp, set()).add(tgt[2])
 
         # Create nodes
         node_map: dict[str, CuvisNodeAdapter] = {}
@@ -186,11 +193,18 @@ class PipelineSerializer:
                 "name": node_config.name,
                 "hparams": node_config.hparams,
             }
+            known_class = self.node_registry.get_node_class(node_config.class_name) is not None
+            if known_class:
+                input_hints = input_port_hints_by_node.get(node_config.name)
+                output_hints = output_port_hints_by_node.get(node_config.name)
+            else:
+                input_hints = input_port_hints_by_class.get(node_config.class_name)
+                output_hints = output_port_hints_by_class.get(node_config.class_name)
             node = self._create_node(
                 node_dict,
                 graph,
-                input_port_hints=input_port_hints.get(node_config.class_name),
-                output_port_hints=output_port_hints.get(node_config.class_name),
+                input_port_hints=input_hints,
+                output_port_hints=output_hints,
             )
             if node:
                 node_map[node.name()] = node

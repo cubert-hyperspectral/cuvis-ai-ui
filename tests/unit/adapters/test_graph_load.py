@@ -117,6 +117,47 @@ def test_known_class_without_ports_takes_them_from_connections(graph):
     )
 
 
+def test_two_spec_less_instances_each_keep_only_their_own_ports(graph):
+    infos = [
+        _info("p.Src", outputs=["out"]),
+        _info("p.Bare"),
+        _info("p.Sink", inputs=["mask"]),
+    ]
+    config = _config(
+        [
+            ("src1", "p.Src"),
+            ("bare1", "p.Bare"),
+            ("sink1", "p.Sink"),
+            ("src2", "p.Src"),
+            ("bare2", "p.Bare"),
+            ("sink2", "p.Sink"),
+        ],
+        [
+            ("src1.outputs.out", "bare1.inputs.cube"),
+            ("bare1.outputs.mask", "sink1.inputs.mask"),
+            ("src2.outputs.out", "bare2.inputs.alpha"),
+            ("bare2.outputs.beta", "sink2.inputs.mask"),
+        ],
+    )
+    serializer = _load(graph, infos, config)
+
+    assert _edges(graph) == {
+        ("src1", "out", "bare1", "cube"),
+        ("bare1", "mask", "sink1", "mask"),
+        ("src2", "out", "bare2", "alpha"),
+        ("bare2", "beta", "sink2", "mask"),
+    }
+    assert serializer.last_missing_connections == []
+
+    nodes_by_name = {node.name(): node for node in graph.all_nodes()}
+    bare1 = nodes_by_name["bare1"]
+    bare2 = nodes_by_name["bare2"]
+    assert set(bare1.inputs()) == {"cube"}
+    assert set(bare1.outputs()) == {"mask"}
+    assert set(bare2.inputs()) == {"alpha"}
+    assert set(bare2.outputs()) == {"beta"}
+
+
 def test_placeholder_fan_in_keeps_every_edge(graph):
     infos = [_info("p.Src", outputs=["out"])]
     serializer = _load(graph, infos, _config(FAN_IN, FAN_IN_EDGES))
