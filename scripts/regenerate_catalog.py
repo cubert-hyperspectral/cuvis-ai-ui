@@ -48,7 +48,15 @@ Do not edit these files by hand. Regenerate them for a new cuvis-ai release:
 
 def _git(repo: Path, *args: str) -> bytes:
     """Run a git command in ``repo`` and return its stdout."""
-    result = subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    cmd = ["git", "-C", str(repo), *args]
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode("utf-8", errors="replace").strip() if exc.stderr else ""
+        message = f"{' '.join(cmd)} failed"
+        if stderr:
+            message = f"{message}: {stderr}"
+        raise click.ClickException(message) from exc
     return result.stdout
 
 
