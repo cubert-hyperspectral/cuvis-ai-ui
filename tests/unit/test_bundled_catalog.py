@@ -7,6 +7,8 @@ manifests' ``capabilities``. These tests guard that the shipped files still matc
 the manifest schema and that the loader turns them into bundled plugin entries.
 """
 
+import fnmatch
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -21,12 +23,30 @@ from cuvis_ai_ui.settings.plugins import (
     get_default_plugin_entries,
 )
 
-CATALOG_FILES = sorted(get_catalog_dir().glob("*.yaml"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+CATALOG_FILES = sorted(get_catalog_dir().glob("*.yaml")) + sorted(get_catalog_dir().glob("*.yml"))
 
 
 def test_catalog_lives_inside_the_package():
     # A wheel install has no repo root, so the catalog must ship under cuvis_ai_ui/.
     assert get_catalog_dir().parent == Path(cuvis_ai_ui.__file__).parent
+
+
+def test_package_data_ships_every_catalog_file_including_yml():
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    globs = pyproject["tool"]["setuptools"]["package-data"]["cuvis_ai_ui"]
+
+    package_dir = Path(cuvis_ai_ui.__file__).parent
+    for path in CATALOG_FILES:
+        relative = path.relative_to(package_dir).as_posix()
+        assert any(fnmatch.fnmatch(relative, pattern) for pattern in globs), (
+            f"{relative} matches no cuvis_ai_ui package-data glob"
+        )
+
+    assert any(fnmatch.fnmatch("catalog/example.yml", pattern) for pattern in globs), (
+        "no package-data glob matches a .yml catalog manifest"
+    )
 
 
 def test_catalog_ships_the_released_cuvis_ai_plugins():
