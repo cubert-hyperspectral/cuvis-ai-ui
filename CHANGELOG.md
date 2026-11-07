@@ -3,12 +3,13 @@
 ## 0.5.0 - 2026-11-06
 
 - The node palette lists the nodes of every released cuvis-ai plugin: the bundled catalog `cuvis_ai_ui/catalog/` holds the 18 git-pinned plugin manifests of cuvis-ai v0.22.6 (247 nodes), replaces `cuvis_ai_catalog.yaml`, and ships in the wheel and the installer. `scripts/regenerate_catalog.py --tag <tag>` mirrors a newer release.
-- Bundled plugins always come from the installed catalog and `plugins.json` keeps only their enabled flag, so a store written by an older version no longer hides new plugins.
-- `cuvis-ui PATH` opens a pipeline file or a folder of pipelines. A folder fills the new Pipelines dock (also File > Open Folder) and registers the manifests in its `plugins/` subfolder; `--plugins-dir` adds manifest folders, and the app's own `plugins/` folder is read at every start.
-- `--start-server` starts the local server for the run. The UI looks for the per-user server-venv, then a sibling cuvis-ai-core `.venv`, then its own interpreter, and writes the server's output to `server.log` instead of an unread pipe that could stall the server.
-- Pipelines load with every edge: fan-in inputs keep all their connections, nodes whose manifest lists no ports take them from the connections, and the load warnings name each connection that could not be drawn and each `plugins:` entry the server does not know.
+- Bundled plugins always come from the installed catalog and `plugins.json` keeps only their enabled flag, so a store written by an older version no longer hides new plugins. Removing a bundled plugin in the Plugin Manager disables it.
+- `cuvis-ui PATH` opens a pipeline file or a folder of pipelines. A folder fills the new Pipelines dock (also File > Open Folder) and registers the manifests in its `plugins/` subfolder; `--plugins-dir` adds manifest folders, and the app's own `plugins/` folder is read at every start. The Plugin Manager lists plugins from these folders as read-only rows.
+- `--start-server` starts the local server for the run. The UI looks for the per-user server-venv, then a sibling cuvis-ai-core `.venv`, then its own interpreter, and writes the server's output to `server.log` instead of an unread pipe that could stall the server. A log that cannot be written is reported as a start error.
+- Pipelines load with every edge: fan-in inputs keep all their connections, nodes whose manifest lists no ports take them from the connections, and the load warnings name each connection that could not be drawn and each `plugins:` entry the server does not know. A class named by its defining module (`pkg.node.module.Cls`, as cuvis-ai saves it) or by its bare name resolves to the registered class like on the server, and keeps that name when saved.
+- Loaded pipelines are laid out by node size, so wide nodes no longer overlap, and each opened pipeline is framed in the view.
 - A change of the plugin set (folder, Plugin Manager, refresh, reconnect) starts a fresh server session and replaces node types whose ports changed; the status bar names plugins that failed to load.
-- Opening another pipeline asks about unsaved changes on every route, graph edits mark the pipeline unsaved, and a cancelled close keeps the server connection.
+- Opening another pipeline asks about unsaved changes on every route, graph and property edits mark the pipeline unsaved (selecting nodes does not), Save As updates the Pipelines dock, and a cancelled close keeps the server connection.
 - Requires `cuvis-ai-schemas[proto]>=0.14.4`. The installer builds against cuvis-ai-core v0.20.2 (`CUVIS_AI_CORE_ROOT` points `build.bat` at another checkout), and its bootstrap smoke test no longer imports the Cuvis SDK.
 
 ## 0.4.0 - 2026-11-05
