@@ -287,6 +287,34 @@ def test_cancelled_local_starts_keep_an_unrelated_remote_connection(
     mock_messagebox.warning.assert_not_called()
 
 
+@patch("cuvis_ai_ui.main_window.check_cancelled", side_effect=OperationCancelled())
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
+def test_a_connect_cancelled_before_the_old_client_closed_keeps_it(
+    mock_is_listening, mock_dialog_cls, mock_client_cls, mock_messagebox, mock_check, qtbot
+):
+    """Cancel at the first checkpoint, before the old client's CloseSession:
+    the old connection stays, still marked connected, and nothing is closed."""
+    old = MagicMock()
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings()
+
+    window._show_connection_dialog()
+
+    assert window.client is old
+    old.disconnect.assert_not_called()
+    mock_client_cls.return_value.connect.assert_not_called()
+    assert window._connection_label.text() == "Connected"
+    assert window.statusBar().currentMessage() == "Connecting cancelled; the old connection stays."
+    mock_messagebox.warning.assert_not_called()
+
+
 @patch("cuvis_ai_ui.main_window.QMessageBox")
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
 @patch("cuvis_ai_ui.main_window.ConnectionDialog")
