@@ -226,8 +226,14 @@ class CuvisAIClient:
 
         return False
 
-    def disconnect(self) -> bool:
+    def disconnect(self, close_session: bool = True) -> bool:
         """Disconnect from gRPC server and close session.
+
+        Parameters
+        ----------
+        close_session : bool
+            Send CloseSession before closing the channel. False only closes the
+            channel, for a client whose server is gone.
 
         Returns
         -------
@@ -240,7 +246,7 @@ class CuvisAIClient:
 
         try:
             # Close session if exists
-            if self.session_id and self.stub:
+            if close_session and self.session_id and self.stub:
                 self.close_session()
 
             # Close channel

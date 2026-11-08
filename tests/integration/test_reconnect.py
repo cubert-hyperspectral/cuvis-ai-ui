@@ -5,13 +5,28 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cuvis_ai_ui.grpc.client import OperationCancelled
+from cuvis_ai_ui.grpc.client import CuvisAIClient, OperationCancelled
 from cuvis_ai_ui.main_window import MainWindow
 from cuvis_ai_ui.widgets.blocking_task import SERVER_WAIT_CANCELLED
 
 
 def _local_settings(port=50051):
     return {"mode": "local", "host": "localhost", "port": port, "auto_start": True}
+
+
+def _connected_client(host="localhost", port=50051):
+    """A real client holding session s1 on a mocked channel and stub."""
+    client = CuvisAIClient(host=host, port=port)
+    client.channel, client.stub = MagicMock(), MagicMock()
+    client._connected, client.session_id = True, "s1"
+    return client
+
+
+def _assert_dropped_without_close_session(client):
+    """The client's channel is closed locally; nothing went to its stopped server."""
+    client.channel.close.assert_called_once()
+    client.stub.CloseSession.assert_not_called()
+    assert not client._connected
 
 
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
@@ -210,9 +225,9 @@ def test_a_cancelled_port_switch_drops_the_client_of_the_server_it_stopped(
 ):
     """Switching to another local port stops this window's server before the
     wait. Cancelling that wait must not keep a client of the stopped server
-    marked connected; a second cancelled attempt stays disconnected."""
-    old = MagicMock()
-    old.host, old.port = "localhost", 50051
+    marked connected, nor its channel open; a second cancelled attempt stays
+    disconnected."""
+    old = _connected_client()
     window = MainWindow(client=old)
     qtbot.addWidget(window)
     old_manager = MagicMock()
@@ -243,7 +258,7 @@ def test_a_cancelled_port_switch_drops_the_client_of_the_server_it_stopped(
     assert window._connection_label.text() == "Not connected"
     assert window.statusBar().currentMessage() == SERVER_WAIT_CANCELLED
     assert new_manager.wait_ready.call_count == 2
-    old.disconnect.assert_not_called()
+    _assert_dropped_without_close_session(old)
     new_manager.stop.assert_not_called()
     mock_client_cls.return_value.connect.assert_not_called()
     mock_messagebox.warning.assert_not_called()
@@ -326,9 +341,9 @@ def test_a_cancelled_switch_to_remote_drops_the_client_of_the_stopped_server(
 ):
     """Switching to a remote server stops this window's local server first. A
     Cancel before the old client's CloseSession must not keep that client of the
-    stopped server marked connected; nothing is sent to the server that is gone."""
-    old = MagicMock()
-    old.host, old.port = "localhost", 50051
+    stopped server marked connected, nor its channel open; nothing is sent to the
+    server that is gone."""
+    old = _connected_client()
     window = MainWindow(client=old)
     qtbot.addWidget(window)
     manager = MagicMock()
@@ -346,7 +361,7 @@ def test_a_cancelled_switch_to_remote_drops_the_client_of_the_stopped_server(
     assert window.client is None
     assert window._connection_label.text() == "Not connected"
     assert "not connected" in window.statusBar().currentMessage()
-    old.disconnect.assert_not_called()
+    _assert_dropped_without_close_session(old)
     mock_client_cls.return_value.connect.assert_not_called()
     mock_messagebox.warning.assert_not_called()
 

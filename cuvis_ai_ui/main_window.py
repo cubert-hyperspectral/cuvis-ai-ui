@@ -775,7 +775,10 @@ class MainWindow(QMainWindow):
                         self._status_bar.showMessage(SERVER_WAIT_CANCELLED)
                         return
                     # The old client's server was stopped above; drop the client
-                    # without a CloseSession call to a server that is gone.
+                    # and close its channel without a CloseSession call to a
+                    # server that is gone.
+                    if self._client is not None:
+                        self._client.disconnect(close_session=False)
                     self._client = None
                     self._update_connection_status(False)
                     self._status_bar.showMessage(
@@ -824,6 +827,9 @@ class MainWindow(QMainWindow):
         if connected.status is TaskStatus.CANCELLED and not (old_closed or stopped_client_server):
             self._status_bar.showMessage("Connecting cancelled; the old connection stays.")
             return
+        if old_client is not None and not old_closed:
+            # Its server was stopped above: close the channel, no CloseSession
+            old_client.disconnect(close_session=False)
         self._client = None
         self._update_connection_status(False)
         if connected.status is TaskStatus.CANCELLED:
