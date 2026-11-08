@@ -107,3 +107,11 @@ def test_the_command_exits_non_zero_so_the_build_stops(stamp_module, tmp_path):
 
     assert result.exit_code != 0
     assert "setuptools_scm" in result.output
+
+
+def test_a_payload_without_pyproject_exits_non_zero(stamp_module, tmp_path):
+    result = CliRunner().invoke(stamp_module.main, [str(tmp_path), "0.20.2"])
+
+    assert result.exit_code != 0
+    assert "pyproject.toml" in result.output
+    assert not (tmp_path / "pyproject.toml").exists()

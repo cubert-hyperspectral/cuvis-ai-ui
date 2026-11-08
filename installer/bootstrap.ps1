@@ -139,8 +139,11 @@ try {
     if (Test-Path $SourceDir) { Remove-Item -Path $SourceDir -Recurse -Force }
     $null = New-Item -ItemType Directory -Force -Path (Split-Path $SourceDir -Parent)
     # robocopy: /E (subdirs incl empty), /NFL/NDL (less noise), /NP (no progress);
-    # exit codes 0-7 are success.
-    $rcArgs = @($ShippedSrc, $SourceDir, "/E", "/NFL", "/NDL", "/NP", "/NJH", "/NJS")
+    # exit codes 0-7 are success. /XD and /XF skip a .git folder or worktree
+    # pointer file that an older installer may have left in the shipped source:
+    # setuptools-scm would read it instead of the stamped fallback_version.
+    $rcArgs = @($ShippedSrc, $SourceDir, "/E", "/XD", ".git", "/XF", ".git",
+                "/NFL", "/NDL", "/NP", "/NJH", "/NJS")
     & robocopy @rcArgs | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
     $LASTEXITCODE = 0  # robocopy may have set it to 1 on success
