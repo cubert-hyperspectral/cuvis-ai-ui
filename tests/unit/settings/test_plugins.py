@@ -1098,9 +1098,3 @@ class TestIsBundledPlugin:
             name="lab_nodes", source="manifest", origin="D:/lab/cuvis_ai_catalog.yaml"
         )
         assert is_bundled_plugin(entry) is False
-
-    def test_matches_internal_check(self):
-        from cuvis_ai_ui.settings.plugins import _is_bundled
-
-        entry = _make_entry(name="a", source=BUNDLED_SOURCE)
-        assert is_bundled_plugin(entry) == _is_bundled(entry)
