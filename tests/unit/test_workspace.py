@@ -152,6 +152,41 @@ class TestRegisterPlugins:
         assert client.close_session.call_count == 2
         client.create_session.assert_called_once()
 
+    @pytest.mark.parametrize("closes", [[False], [False, False]])
+    def test_a_cancel_during_a_failed_close_keeps_the_old_session(self, client, closes):
+        """Cancel lands while a CloseSession stalls and fails: no retry and no new
+        session, so the client keeps the session it has; nothing is registered."""
+        stop = threading.Event()
+        results = iter(closes)
+
+        def close():
+            if len(closes) == 1 or client.close_session.call_count == 2:
+                stop.set()
+            return next(results)
+
+        client.close_session.side_effect = close
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        assert client.close_session.call_count == len(closes)
+        client.create_session.assert_not_called()
+        client.load_plugins.assert_not_called()
+        client.list_available_nodes.assert_not_called()
+
+    def test_a_cancel_after_the_old_session_closed_still_opens_the_new_one(self, client):
+        """With the old session closed, the new one is opened anyway so the client
+        is never left without a session; the cancel stops before the node list."""
+        stop = threading.Event()
+
+        def close():
+            stop.set()
+            return True
+
+        client.close_session.side_effect = close
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        client.create_session.assert_called_once()
+        client.list_available_nodes.assert_not_called()
+
     def test_a_session_that_will_not_close_is_still_replaced(self, client):
         client.close_session.return_value = False
         result = register_plugins(client, [_entry("a")], fresh_session=True)

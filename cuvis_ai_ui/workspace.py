@@ -90,15 +90,15 @@ def register_plugins(
 
     A set ``stop`` event raises
     :class:`~cuvis_ai_ui.grpc.client.OperationCancelled` before the session
-    swap, between plugins and before the node list; plugins registered by
-    then stay in the server session.
+    swap, after a failed close within it, between plugins and before the node
+    list; plugins registered by then stay in the server session.
     """
     manifest = build_manifest(entries, enabled_only=True)
     temp_path = write_manifest_temp(manifest) if manifest else None
     try:
         check_cancelled(stop)
         if fresh_session:
-            _replace_session(client)
+            _replace_session(client, stop)
 
         result = PluginRegistration()
         if temp_path is not None:
@@ -117,14 +117,21 @@ def register_plugins(
     return result
 
 
-def _replace_session(client: CuvisAIClient) -> None:
+def _replace_session(client: CuvisAIClient, stop: threading.Event | None = None) -> None:
     """Close the server session and open a new one.
 
     A close that fails is tried once more; if it still fails the new session
     is opened anyway and the old one is named in the log, since it stays open
-    on the server.
+    on the server. A set ``stop`` event ends the swap after a failed close,
+    while the client still holds its old session; once the old session is
+    closed the new one is always opened, so the client never ends up without.
     """
     old_session = client.session_id
-    if not (client.close_session() or client.close_session()):
+    closed = client.close_session()
+    if not closed:
+        check_cancelled(stop)
+        closed = client.close_session()
+    if not closed:
+        check_cancelled(stop)
         logger.warning(f"Could not close server session {old_session}; it stays open")
     client.create_session()
