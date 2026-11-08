@@ -1,8 +1,11 @@
 """Reconnecting through Tools > Connect to Server in local mode."""
 
+import threading
 from unittest.mock import MagicMock, patch
 
+from cuvis_ai_ui.grpc.client import OperationCancelled
 from cuvis_ai_ui.main_window import MainWindow
+from cuvis_ai_ui.widgets.blocking_task import SERVER_WAIT_CANCELLED
 
 
 def _local_settings(port=50051):
@@ -165,3 +168,95 @@ def test_reconnect_in_local_mode_connects_to_localhost(
 
     mock_is_listening.assert_called_once_with("localhost", 50051)
     assert mock_client_cls.call_args.kwargs["host"] == "localhost"
+
+
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
+def test_a_cancelled_server_wait_keeps_the_old_connection(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    """Cancel changes nothing: the old client is neither closed (no CloseSession
+    RPC that could stall) nor replaced, and no error box appears."""
+    old = MagicMock()
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+    mock_manager_cls.return_value.wait_ready.side_effect = OperationCancelled()
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings()
+
+    window._show_connection_dialog()
+
+    assert window.client is old
+    old.disconnect.assert_not_called()
+    mock_client_cls.return_value.connect.assert_not_called()
+    mock_messagebox.warning.assert_not_called()
+    assert window.statusBar().currentMessage() == SERVER_WAIT_CANCELLED
+
+
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
+def test_a_connect_cancelled_after_the_old_client_closed_leaves_no_client(
+    mock_is_listening, mock_dialog_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    old = MagicMock()
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+    mock_client_cls.return_value.connect.side_effect = OperationCancelled()
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings()
+
+    window._show_connection_dialog()
+
+    old.disconnect.assert_called_once()
+    assert window.client is None
+    mock_messagebox.warning.assert_not_called()
+    assert "not connected" in window.statusBar().currentMessage()
+
+
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
+def test_a_failed_reconnect_names_the_error_and_leaves_no_client(
+    mock_is_listening, mock_dialog_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    window = MainWindow(client=MagicMock())
+    qtbot.addWidget(window)
+    mock_client_cls.return_value.connect.side_effect = ConnectionError("handshake refused")
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings()
+
+    window._show_connection_dialog()
+
+    assert window.client is None
+    assert "handshake refused" in mock_messagebox.warning.call_args.args[2]
+
+
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
+def test_reconnect_hands_the_stop_event_to_connect(
+    mock_is_listening, mock_dialog_cls, mock_client_cls, qtbot
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings()
+
+    window._show_connection_dialog()
+
+    assert window.client is mock_client_cls.return_value
+    stop = mock_client_cls.return_value.connect.call_args.kwargs["stop"]
+    assert isinstance(stop, threading.Event)

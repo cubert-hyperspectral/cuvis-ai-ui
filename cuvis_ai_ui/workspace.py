@@ -1,5 +1,6 @@
 """Pipeline folders and the plugin set the UI registers with the server."""
 
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any
 from loguru import logger
 
 from .adapters import enrich_node_list
-from .grpc.client import CuvisAIClient
+from .grpc.client import CuvisAIClient, check_cancelled
 from .settings import build_manifest, write_manifest_temp
 
 PLUGINS_SUBDIR = "plugins"
@@ -73,6 +74,7 @@ def register_plugins(
     entries: list[dict[str, Any]],
     *,
     fresh_session: bool = False,
+    stop: threading.Event | None = None,
 ) -> PluginRegistration:
     """Register the enabled plugin entries with the server and list its nodes.
 
@@ -85,16 +87,22 @@ def register_plugins(
 
     The manifest is written before the session is replaced, so a plugin set
     that cannot be serialized leaves the working session alone.
+
+    A set ``stop`` event raises
+    :class:`~cuvis_ai_ui.grpc.client.OperationCancelled` before the session
+    swap, between plugins and before the node list; plugins registered by
+    then stay in the server session.
     """
     manifest = build_manifest(entries, enabled_only=True)
     temp_path = write_manifest_temp(manifest) if manifest else None
     try:
+        check_cancelled(stop)
         if fresh_session:
             _replace_session(client)
 
         result = PluginRegistration()
         if temp_path is not None:
-            response = client.load_plugins(temp_path)
+            response = client.load_plugins(temp_path, stop=stop)
             result.loaded = list(response.get("loaded_plugins", []))
             result.failed = list(response.get("failed_plugins", []))
             if result.failed:
@@ -103,6 +111,7 @@ def register_plugins(
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
 
+    check_cancelled(stop)
     result.nodes = enrich_node_list(client.list_available_nodes())
     logger.info(f"Registered {result.status_text()}")
     return result

@@ -4,6 +4,7 @@ This is a CLIENT-ONLY implementation - no gRPC service implementation.
 All business logic resides in cuvis-ai-core server.
 """
 
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,28 @@ import grpc
 from loguru import logger
 
 from cuvis_ai_schemas.grpc.v1 import cuvis_ai_pb2, cuvis_ai_pb2_grpc
+
+
+class OperationCancelled(Exception):
+    """A blocking call stopped early because the user cancelled it."""
+
+
+def check_cancelled(stop: threading.Event | None) -> None:
+    """Raise :class:`OperationCancelled` if ``stop`` is set."""
+    if stop is not None and stop.is_set():
+        raise OperationCancelled
+
+
+def pause(seconds: float, stop: threading.Event | None) -> None:
+    """Wait ``seconds``; with a ``stop`` event, end the wait as soon as it is set.
+
+    Without an event this is ``time.sleep``. With one, a set event raises
+    :class:`OperationCancelled` instead of waiting out the rest.
+    """
+    if stop is None:
+        time.sleep(seconds)
+    elif stop.wait(seconds):
+        raise OperationCancelled
 
 
 def _dtype_to_string(dtype_enum: int) -> str:
@@ -120,8 +143,15 @@ class CuvisAIClient:
         self.session_id: str | None = None
         self._connected = False
 
-    def connect(self) -> bool:
+    def connect(self, stop: threading.Event | None = None) -> bool:
         """Connect to gRPC server with retry logic.
+
+        Parameters
+        ----------
+        stop : threading.Event | None
+            Set by another thread to give up: checked before each attempt and
+            during the backoff between attempts. An attempt already sent runs
+            to its own timeout.
 
         Returns
         -------
@@ -132,8 +162,11 @@ class CuvisAIClient:
         ------
         ConnectionError
             If connection fails after all retries
+        OperationCancelled
+            If ``stop`` was set
         """
         for attempt in range(1, self.max_retries + 1):
+            check_cancelled(stop)
             try:
                 logger.debug(
                     f"Connecting to cuvis-ai-core at {self.host}:{self.port} "
@@ -171,7 +204,7 @@ class CuvisAIClient:
                     # Exponential backoff: 1s, 2s, 4s
                     wait_time = 2 ** (attempt - 1)
                     logger.debug(f"Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
+                    pause(wait_time, stop)
                 else:
                     # Final attempt failed
                     error_msg = (
@@ -275,7 +308,9 @@ class CuvisAIClient:
     # Plugin Management
     # -----------------
 
-    def load_plugins(self, manifest_path: str | Path) -> dict[str, Any]:
+    def load_plugins(
+        self, manifest_path: str | Path, stop: threading.Event | None = None
+    ) -> dict[str, Any]:
         """Register plugins from a manifest file into the session catalog.
 
         The manifest file holds a list of bare single-plugin manifests. The
@@ -290,6 +325,9 @@ class CuvisAIClient:
         manifest_path : str | Path
             Path to a plugins.yaml / .json manifest file (a list of bare
             single-plugin manifests).
+        stop : threading.Event | None
+            Set by another thread to give up; checked before each plugin's
+            call, so plugins registered before it stay registered.
 
         Returns
         -------
@@ -328,6 +366,7 @@ class CuvisAIClient:
         try:
             # LoadPlugin registers one plugin per call, so loop the catalog.
             for entry in manifests:
+                check_cancelled(stop)
                 manifest = dict(entry)
                 # Resolve a relative local path to absolute against the manifest
                 # dir: the server cannot resolve a client-relative path.

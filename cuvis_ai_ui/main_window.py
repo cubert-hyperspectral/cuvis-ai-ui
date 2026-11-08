@@ -8,6 +8,7 @@ This module provides the Qt MainWindow with:
 - Dock widgets for the pipelines of a folder, node palette and property editor
 """
 
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -30,8 +31,14 @@ from PySide6.QtWidgets import (
 )
 
 from .adapters import NodeRegistry, PipelineSerializer
-from .grpc.client import CuvisAIClient
-from .server import SERVER_READY_TIMEOUT, ServerManager, is_listening
+from .grpc.client import CuvisAIClient, check_cancelled
+from .server import ServerManager, is_listening
+from .widgets.blocking_task import (
+    SERVER_WAIT_CANCELLED,
+    TaskStatus,
+    run_blocking,
+    wait_for_server,
+)
 from .widgets.canvas_drop_target import CanvasDropTarget
 from .widgets.connection_dialog import ConnectionDialog
 from .widgets.pipeline_browser import PipelineBrowser
@@ -677,12 +684,10 @@ class MainWindow(QMainWindow):
     # Edit operations
 
     def _delete_selected(self) -> None:
-        """Delete selected nodes."""
+        """Delete selected nodes; the undo stack's signal marks the pipeline unsaved."""
         selected = self._graph.selected_nodes()
         if selected:
             self._graph.delete_nodes(selected)
-            self._unsaved_changes = True
-            self._update_title()
 
     def _select_all(self) -> None:
         """Select all nodes."""
@@ -690,20 +695,16 @@ class MainWindow(QMainWindow):
             node.set_property("selected", True, push_undo=False)
 
     def _undo(self) -> None:
-        """Undo last action."""
+        """Undo last action; moving the undo stack marks the pipeline unsaved."""
         undo_stack = self._graph.undo_stack()
         if undo_stack and undo_stack.canUndo():
             undo_stack.undo()
-            self._unsaved_changes = True
-            self._update_title()
 
     def _redo(self) -> None:
-        """Redo last undone action."""
+        """Redo last undone action; moving the undo stack marks the pipeline unsaved."""
         undo_stack = self._graph.undo_stack()
         if undo_stack and undo_stack.canRedo():
             undo_stack.redo()
-            self._unsaved_changes = True
-            self._update_title()
 
     # View operations
 
@@ -755,32 +756,59 @@ class MainWindow(QMainWindow):
                 if self._server_manager is None:
                     self._server_manager = ServerManager(port=port)
                     self._server_manager.start()
-                if not self._server_manager.wait_ready(timeout=SERVER_READY_TIMEOUT):
-                    detail = self._server_manager.last_error or (
-                        "The local gRPC server did not become ready in time."
+                waited = wait_for_server(self._server_manager, self)
+                if waited.status is TaskStatus.CANCELLED:
+                    # Cancel changes nothing: the old connection, if any, stays
+                    self._status_bar.showMessage(SERVER_WAIT_CANCELLED)
+                    return
+                if not waited.value:
+                    detail = (
+                        waited.error
+                        or self._server_manager.last_error
+                        or "The local gRPC server did not become ready in time."
                     )
                     QMessageBox.warning(self, "Server Start Warning", detail)
 
-        # Close old client
-        if self._client is not None:
-            try:
-                self._client.disconnect()
-            except Exception:
-                pass
+        # Close the old client and connect the new one off the UI thread: closing
+        # sends CloseSession, which can take its full timeout on a stalled server.
+        old_client = self._client
+        new_client = CuvisAIClient(host=host, port=port)
+        old_closed = False
 
-        # Reconnect
-        try:
-            self._client = CuvisAIClient(host=host, port=port)
-            self._client.connect()
-            self._session_id = self._client.session_id
+        def reconnect(stop: threading.Event) -> None:
+            nonlocal old_closed
+            check_cancelled(stop)
+            if old_client is not None:
+                try:
+                    old_client.disconnect()
+                except Exception:
+                    pass
+            old_closed = True
+            check_cancelled(stop)
+            new_client.connect(stop=stop)
+
+        connected = run_blocking(
+            self, "Connecting", f"Connecting to the server at {host}:{port}...", reconnect
+        )
+        if connected.status is TaskStatus.DONE:
+            self._client = new_client
+            self._session_id = new_client.session_id
             self._update_connection_status(True)
             self._status_bar.showMessage(f"Connected to {host}:{port}", 3000)
             logger.info(f"Reconnected to {host}:{port}, session: {self._session_id}")
-        except Exception as e:
-            self._client = None
-            self._update_connection_status(False)
+            return
+        if connected.status is TaskStatus.CANCELLED and not old_closed:
+            self._status_bar.showMessage("Connecting cancelled; the old connection stays.")
+            return
+        self._client = None
+        self._update_connection_status(False)
+        if connected.status is TaskStatus.CANCELLED:
+            self._status_bar.showMessage("Connecting cancelled; not connected.")
+        else:
             QMessageBox.warning(
-                self, "Connection Failed", f"Failed to connect to {host}:{port}:\n{e}"
+                self,
+                "Connection Failed",
+                f"Failed to connect to {host}:{port}:\n{connected.error}",
             )
 
     def _refresh_nodes(self) -> None:

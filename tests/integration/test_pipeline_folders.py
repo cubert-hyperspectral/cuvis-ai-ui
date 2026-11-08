@@ -88,6 +88,34 @@ def test_a_graph_edit_marks_the_pipeline_unsaved(window, folder):
     assert window.windowTitle().startswith("*")
 
 
+def _mark_saved(window):
+    window._unsaved_changes = False
+    window._update_title()
+    assert not window.windowTitle().startswith("*")
+
+
+@pytest.mark.parametrize("action", ["undo", "redo", "delete"])
+def test_undo_redo_and_delete_mark_the_pipeline_unsaved(window, folder, action):
+    """Each moves the graph's undo stack, whose signal marks the pipeline unsaved;
+    none of them needs to set the flag itself."""
+    window.open_folder(folder)
+    _edit(window)
+    if action == "redo":
+        window._undo()
+    _mark_saved(window)
+
+    if action == "undo":
+        window._undo()
+    elif action == "redo":
+        window._redo()
+    else:
+        window.graph.all_nodes()[0].set_selected(True)
+        window._delete_selected()
+
+    assert window._unsaved_changes
+    assert window.windowTitle().startswith("*")
+
+
 def test_browser_selection_keeps_edits_on_cancel(window, folder, answer):
     window.open_folder(folder)
     _edit(window)

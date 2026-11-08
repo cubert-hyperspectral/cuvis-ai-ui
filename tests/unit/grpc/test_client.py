@@ -86,6 +86,64 @@ def test_connect_failure_raises_connection_error(mock_stub_class, mock_channel):
         client.connect()
 
 
+def _rpc_error():
+    import grpc
+
+    class _MockRpcError(grpc.RpcError):
+        def code(self):
+            return grpc.StatusCode.UNAVAILABLE
+
+        def details(self):
+            return "Connection refused"
+
+    return _MockRpcError()
+
+
+@patch("cuvis_ai_ui.grpc.client.time.sleep")
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
+def test_connect_stops_before_the_next_attempt(mock_stub_class, mock_channel, mock_sleep):
+    import threading
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+
+    def refused(*args, **kwargs):
+        stop.set()
+        raise _rpc_error()
+
+    mock_stub_class.return_value.CreateSession.side_effect = refused
+
+    with pytest.raises(OperationCancelled):
+        CuvisAIClient(max_retries=3).connect(stop=stop)
+
+    assert mock_stub_class.return_value.CreateSession.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
+def test_connect_backoff_ends_as_soon_as_the_event_is_set(mock_stub_class, mock_channel):
+    """The 1 s backoff after a failed attempt waits on the stop event, so a
+    Cancel during it returns at once instead of after the backoff."""
+    import threading
+    import time
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+    mock_stub_class.return_value.CreateSession.side_effect = _rpc_error()
+    threading.Timer(0.05, stop.set).start()
+
+    started = time.monotonic()
+    with pytest.raises(OperationCancelled):
+        CuvisAIClient(max_retries=3).connect(stop=stop)
+
+    assert time.monotonic() - started < 0.8
+    assert mock_stub_class.return_value.CreateSession.call_count == 1
+
+
 def test_disconnect_when_not_connected():
     """Test disconnecting when not connected."""
     client = CuvisAIClient()
@@ -231,6 +289,34 @@ def test_load_plugins_reports_failed_plugins(tmp_path):
     assert result["loaded_plugins"] == ["ok"]
     assert result["failed_plugins"] == ["bad"]
     assert result["success"] is False
+
+
+def test_load_plugins_stops_between_plugins(tmp_path):
+    """Each plugin is its own LoadPlugin call; a Cancel during one ends the
+    loop before the next instead of after the whole catalog."""
+    import threading
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    manifest = tmp_path / "plugins.yaml"
+    manifest.write_text("- name: a\n- name: b\n- name: c\n", encoding="utf-8")
+    stop = threading.Event()
+
+    client = CuvisAIClient()
+    client._connected = True
+    client.session_id = "s-1"
+    client.stub = Mock()
+
+    def register(request, timeout):
+        stop.set()
+        return Mock(registered_plugin="a", error="")
+
+    client.stub.LoadPlugin.side_effect = register
+
+    with pytest.raises(OperationCancelled):
+        client.load_plugins(manifest, stop=stop)
+
+    assert client.stub.LoadPlugin.call_count == 1
 
 
 def test_dtype_to_string():

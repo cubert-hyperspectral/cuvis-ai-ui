@@ -8,11 +8,14 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 import grpc
 from loguru import logger
+
+from ..grpc.client import check_cancelled, pause
 
 SERVER_MODULE = "cuvis_ai_core.grpc.production_server"
 
@@ -181,10 +184,20 @@ class ServerManager:
             return ""
         return "\n".join(text.splitlines()[-max_lines:])
 
-    def wait_ready(self, timeout: float = 30.0, poll_interval: float = 0.5) -> bool:
+    def wait_ready(
+        self,
+        timeout: float = 30.0,
+        poll_interval: float = 0.5,
+        stop: threading.Event | None = None,
+    ) -> bool:
         """Block until the server responds to a gRPC health check.
 
-        Returns True if the server became ready, False on timeout.
+        Returns True if the server became ready, False on timeout or when the
+        process exits. A set ``stop`` event ends the wait at the next poll with
+        :class:`~cuvis_ai_ui.grpc.client.OperationCancelled`.
+
+        Each poll opens its own channel and closes it, so gRPC's reconnect
+        backoff never grows across polls and delays noticing a ready server.
         """
         if self._process is None:
             return False
@@ -194,22 +207,24 @@ class ServerManager:
         logger.info(f"Waiting for server at {target} (timeout={timeout:.0f}s)...")
 
         while time.monotonic() < deadline:
+            check_cancelled(stop)
             if not self.is_running():
                 self._last_error = self.log_tail()
                 logger.warning(
                     f"Server process exited before becoming ready. Output:\n{self._last_error}"
                 )
                 return False
+            channel = grpc.insecure_channel(target)
             try:
-                channel = grpc.insecure_channel(target)
                 grpc.channel_ready_future(channel).result(timeout=poll_interval)
-                channel.close()
                 logger.info(f"Server is ready at {target}")
                 return True
             except grpc.FutureTimeoutError:
                 pass
             except Exception:
-                time.sleep(poll_interval)
+                pause(poll_interval, stop)
+            finally:
+                channel.close()
 
         logger.warning(f"Server did not become ready within {timeout:.0f}s")
         self._last_error = (

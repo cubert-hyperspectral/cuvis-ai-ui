@@ -1,10 +1,12 @@
 """Pipeline folders, launch targets and plugin registration."""
 
 import json
+import threading
 from unittest.mock import Mock, call
 
 import pytest
 
+from cuvis_ai_ui.grpc.client import OperationCancelled
 from cuvis_ai_ui.workspace import (
     PluginRegistration,
     list_pipelines,
@@ -100,7 +102,7 @@ class TestRegisterPlugins:
     def client(self, mock_grpc_client):
         sent = {}
 
-        def load_plugins(path):
+        def load_plugins(path, stop=None):
             sent["path"] = path
             sent["manifest"] = json.loads(open(path, encoding="utf-8").read())
             return {"loaded_plugins": ["a"], "failed_plugins": ["c"]}
@@ -167,6 +169,37 @@ class TestRegisterPlugins:
         client.load_plugins.assert_not_called()
         assert client.list_available_nodes.call_args_list == [call()]
         assert result.loaded == [] and result.failed == []
+
+    def test_a_cancel_before_it_starts_keeps_the_session(self, client):
+        stop = threading.Event()
+        stop.set()
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        client.close_session.assert_not_called()
+        client.load_plugins.assert_not_called()
+
+    def test_the_stop_event_reaches_load_plugins(self, client):
+        stop = threading.Event()
+        register_plugins(client, [_entry("a")], stop=stop)
+        assert client.load_plugins.call_args.kwargs == {"stop": stop}
+
+    def test_a_cancel_during_loading_skips_listing_and_removes_the_manifest(self, client):
+        stop = threading.Event()
+        sent = client.sent
+        loader = client.load_plugins.side_effect
+
+        def load_then_cancel(path, stop=None):
+            result = loader(path, stop)
+            cancel.set()
+            return result
+
+        cancel = stop
+
+        client.load_plugins.side_effect = load_then_cancel
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], stop=stop)
+        client.list_available_nodes.assert_not_called()
+        assert not sent["path"].exists()
 
 
 class TestPluginRegistrationStatus:
