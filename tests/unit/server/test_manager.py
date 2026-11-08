@@ -382,6 +382,117 @@ def test_wait_ready_timeout(mock_monotonic, mock_channel, mock_ready_future):
     result = manager.wait_ready(timeout=5.0)
     assert not result
     assert "Timeout" in manager.last_error
+    mock_ch.close.assert_called_once()
+
+
+def _running_manager():
+    manager = ServerManager()
+    process = Mock()
+    process.poll.return_value = None
+    manager._process = process
+    return manager
+
+
+@patch("cuvis_ai_ui.server.manager.grpc.channel_ready_future")
+@patch("cuvis_ai_ui.server.manager.grpc.insecure_channel")
+def test_wait_ready_stops_at_the_next_poll_once_the_event_is_set(mock_channel, mock_ready_future):
+    """A cancelled wait ends at the next poll, closes the channel it opened and
+    reports no error: the user stopped waiting, nothing failed."""
+    import threading
+
+    import grpc
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+    channels = [Mock(), Mock()]
+    mock_channel.side_effect = channels
+
+    def not_ready_yet(timeout):
+        stop.set()
+        raise grpc.FutureTimeoutError()
+
+    mock_ready_future.return_value.result.side_effect = not_ready_yet
+    manager = _running_manager()
+
+    with pytest.raises(OperationCancelled):
+        manager.wait_ready(timeout=60.0, stop=stop)
+
+    assert mock_channel.call_count == 1
+    channels[0].close.assert_called_once()
+    assert manager.last_error == ""
+
+
+@patch("cuvis_ai_ui.server.manager.grpc.channel_ready_future")
+@patch("cuvis_ai_ui.server.manager.grpc.insecure_channel")
+@patch("cuvis_ai_ui.server.manager.time.monotonic")
+def test_a_cancel_during_the_last_poll_is_a_cancel_not_a_timeout(
+    mock_monotonic, mock_channel, mock_ready_future
+):
+    """The last poll can run past the deadline while the user presses Cancel;
+    that still ends as a cancel, so the caller does not act on a timeout."""
+    import threading
+
+    import grpc
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+    mock_monotonic.side_effect = [0, 0, 100]
+    mock_ch = Mock()
+    mock_channel.return_value = mock_ch
+
+    def cancelled_while_waiting(timeout):
+        stop.set()
+        raise grpc.FutureTimeoutError()
+
+    mock_ready_future.return_value.result.side_effect = cancelled_while_waiting
+    manager = _running_manager()
+
+    with pytest.raises(OperationCancelled):
+        manager.wait_ready(timeout=5.0, stop=stop)
+    mock_ch.close.assert_called_once()
+    assert manager.last_error == ""
+
+
+@patch("cuvis_ai_ui.server.manager.time.sleep")
+@patch("cuvis_ai_ui.server.manager.grpc.channel_ready_future")
+@patch("cuvis_ai_ui.server.manager.grpc.insecure_channel")
+@patch("cuvis_ai_ui.server.manager.time.monotonic")
+def test_wait_ready_closes_the_channel_when_the_check_raises(
+    mock_monotonic, mock_channel, mock_ready_future, mock_sleep
+):
+    mock_monotonic.side_effect = [0, 0, 100]
+    mock_ch = Mock()
+    mock_channel.return_value = mock_ch
+    mock_ready_future.return_value.result.side_effect = RuntimeError("socket gone")
+
+    assert not _running_manager().wait_ready(timeout=5.0)
+    mock_ch.close.assert_called_once()
+
+
+@patch("cuvis_ai_ui.server.manager.grpc.channel_ready_future")
+@patch("cuvis_ai_ui.server.manager.grpc.insecure_channel")
+def test_wait_ready_waits_out_a_failed_check_on_the_stop_event(mock_channel, mock_ready_future):
+    """After a failed check the pause between polls is the stop event's wait,
+    so Cancel ends it at once instead of after the poll interval."""
+    import threading
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+    mock_channel.return_value = Mock()
+
+    def broken(timeout):
+        stop.set()
+        raise RuntimeError("socket gone")
+
+    mock_ready_future.return_value.result.side_effect = broken
+
+    with patch("cuvis_ai_ui.server.manager.time.sleep") as mock_sleep:
+        with pytest.raises(OperationCancelled):
+            _running_manager().wait_ready(timeout=60.0, poll_interval=30.0, stop=stop)
+    mock_sleep.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

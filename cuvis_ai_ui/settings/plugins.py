@@ -65,8 +65,12 @@ def get_user_plugins_dir() -> Path:
     return app_config_dir() / "plugins"
 
 
-def _is_bundled(entry: dict[str, Any]) -> bool:
-    """Return True for an entry from the bundled catalog, old single-file one included."""
+def is_bundled_plugin(entry: dict[str, Any]) -> bool:
+    """Return True for a plugin entry from the bundled catalog, old single-file one included.
+
+    A bundled plugin always comes back on the next :func:`load_plugin_entries`
+    call, so it cannot be removed from the store: at most it can be disabled.
+    """
     if entry.get("source") == BUNDLED_SOURCE:
         return True
     origin = entry.get("origin")
@@ -75,15 +79,6 @@ def _is_bundled(entry: dict[str, Any]) -> bool:
         and Path(origin).name == _LEGACY_CATALOG_FILE
         and entry.get("name") in _LEGACY_CATALOG_PLUGINS
     )
-
-
-def is_bundled_plugin(entry: dict[str, Any]) -> bool:
-    """Return True for a plugin entry from the bundled catalog.
-
-    A bundled plugin always comes back on the next :func:`load_plugin_entries`
-    call, so it cannot be removed from the store: at most it can be disabled.
-    """
-    return _is_bundled(entry)
 
 
 def _resolve_local_path(config: dict[str, Any], manifest_dir: Path) -> dict[str, Any]:
@@ -325,7 +320,7 @@ def load_plugin_entries() -> list[dict[str, Any]]:
     if stored is None:
         return defaults
 
-    stored_bundled = [e for e in stored if _is_bundled(e)]
+    stored_bundled = [e for e in stored if is_bundled_plugin(e)]
     # A flag stored under an old name applies unless the current name has one.
     bundled_enabled = {
         _BUNDLED_RENAMES[e["name"]]: e["enabled"]
@@ -336,7 +331,7 @@ def load_plugin_entries() -> list[dict[str, Any]]:
         {e["name"]: e["enabled"] for e in stored_bundled if e["name"] not in _BUNDLED_RENAMES}
     )
     merged = [{**d, "enabled": bundled_enabled.get(d["name"], d["enabled"])} for d in defaults]
-    merged.extend(e for e in stored if not _is_bundled(e))
+    merged.extend(e for e in stored if not is_bundled_plugin(e))
     return _dedupe_entries(merged)
 
 
@@ -361,7 +356,7 @@ def collect_plugin_entries(extra_dirs: Iterable[str | Path] = ()) -> list[dict[s
 
 def _storable(entry: dict[str, Any]) -> dict[str, Any]:
     """Reduce a bundled entry to its name and enabled flag for the store."""
-    if not _is_bundled(entry):
+    if not is_bundled_plugin(entry):
         return entry
     return {
         "name": entry["name"],

@@ -139,8 +139,11 @@ try {
     if (Test-Path $SourceDir) { Remove-Item -Path $SourceDir -Recurse -Force }
     $null = New-Item -ItemType Directory -Force -Path (Split-Path $SourceDir -Parent)
     # robocopy: /E (subdirs incl empty), /NFL/NDL (less noise), /NP (no progress);
-    # exit codes 0-7 are success.
-    $rcArgs = @($ShippedSrc, $SourceDir, "/E", "/NFL", "/NDL", "/NP", "/NJH", "/NJS")
+    # exit codes 0-7 are success. /XD and /XF skip a .git folder or worktree
+    # pointer file that an older installer may have left in the shipped source:
+    # setuptools-scm would read it instead of the stamped fallback_version.
+    $rcArgs = @($ShippedSrc, $SourceDir, "/E", "/XD", ".git", "/XF", ".git",
+                "/NFL", "/NDL", "/NP", "/NJH", "/NJS")
     & robocopy @rcArgs | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
     $LASTEXITCODE = 0  # robocopy may have set it to 1 on success
@@ -155,18 +158,9 @@ try {
     }
 
     # --- 4. uv sync to install cuvis-ai-core + transitive deps -------------
-    # cuvis-ai-core uses setuptools_scm for its version, but we ship the source
-    # without .git, so we need to tell setuptools-scm what to pretend the
-    # version is. build.bat captures it from `git describe` and stashes it.
-    $verFile = Join-Path $SourceDir ".cuvis_ai_core_version"
-    if (Test-Path $verFile) {
-        $coreVer = (Get-Content $verFile -Raw).Trim()
-        if ($coreVer) {
-            Log "Pretending cuvis-ai-core version = $coreVer (setuptools-scm)"
-            $env:SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CUVIS_AI_CORE = $coreVer
-        }
-    }
-
+    # The shipped source has no .git; build.bat wrote its version into
+    # pyproject.toml as setuptools-scm's fallback_version, so this install and
+    # every environment the server later builds from the source resolve it.
     Log "Running uv sync against $SourceDir (this may take several minutes)..."
     Push-Location $SourceDir
     try {
@@ -184,7 +178,6 @@ try {
     } finally {
         Pop-Location
         Remove-Item Env:\UV_PROJECT_ENVIRONMENT -ErrorAction SilentlyContinue
-        Remove-Item Env:\SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CUVIS_AI_CORE -ErrorAction SilentlyContinue
     }
 
     # --- 5. pystray for the tray icon --------------------------------------

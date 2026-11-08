@@ -2,9 +2,30 @@
 
 import pytest
 from unittest.mock import MagicMock
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QSpinBox, QDoubleSpinBox, QCheckBox, QLineEdit
 
 from cuvis_ai_ui.widgets.property_editor import PropertyEditor
+
+
+@pytest.fixture(autouse=True)
+def _delete_old_widgets_while_the_editors_live(monkeypatch):
+    """set_node deleteLater()s the widgets it replaces, and no event loop runs
+    here to delete them. A test that drops its editor first leaves those
+    deletions queued for freed widgets, and the next event loop any later test
+    runs (a modal dialog's, say) crashes the process. Keep each editor until
+    its queued deletions are done."""
+    editors = []
+    init = PropertyEditor.__init__
+
+    def keep(self, *args, **kwargs):
+        init(self, *args, **kwargs)
+        editors.append(self)
+
+    monkeypatch.setattr(PropertyEditor, "__init__", keep)
+    yield
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    editors.clear()
 
 
 @pytest.fixture

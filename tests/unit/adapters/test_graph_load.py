@@ -6,35 +6,10 @@ node without ports, a stale registered node type) only show up in a real graph.
 """
 
 import pytest
-from NodeGraphQt import NodeGraph
 
 from cuvis_ai_ui.adapters import NodeRegistry, PipelineSerializer
 from cuvis_ai_ui.adapters.node_adapter import _parse_port_spec
-
-
-def _port(name, variadic=False):
-    return {
-        "name": name,
-        "dtype": "float32",
-        "shape": "any",
-        "optional": False,
-        "description": "",
-        "variadic": variadic,
-    }
-
-
-def _info(path, inputs=(), outputs=(), variadic=(), plugin="p"):
-    return {
-        "class_name": path.rsplit(".", 1)[-1],
-        "full_path": path,
-        "source": "plugin",
-        "plugin_name": plugin,
-        "input_specs": [_port(n, n in variadic) for n in inputs],
-        "output_specs": [_port(n) for n in outputs],
-        "category": 0,
-        "tags": [],
-        "icon_svg": b"",
-    }
+from tests.unit.adapters.conftest import _info, _port
 
 
 def _config(nodes, connections, plugins=("p",)):
@@ -52,13 +27,6 @@ def _edges(graph):
         for port in node.output_ports()
         for other in port.connected_ports()
     }
-
-
-@pytest.fixture
-def graph(qapp):
-    graph = NodeGraph()
-    yield graph
-    graph.clear_session()
 
 
 def _load(graph, infos, config, known_plugins=None):

@@ -6,17 +6,19 @@ pipeline YAML file or a folder of pipelines.
 """
 
 import sys
+import traceback
 from collections.abc import Sequence
 from pathlib import Path
 
 import click
 from loguru import logger
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .grpc.client import CuvisAIClient
 from .main_window import MainWindow
-from .server import SERVER_READY_TIMEOUT, ServerManager, is_listening
+from .server import ServerManager, is_listening
 from .settings import (
     collect_plugin_entries,
     get_plugin_store_path,
@@ -24,29 +26,34 @@ from .settings import (
     set_app_identity,
 )
 from .widgets import NodePalette, PluginManagerDialog, PropertyEditor
+from .widgets.blocking_task import (
+    SERVER_WAIT_CANCELLED,
+    TaskStatus,
+    run_blocking,
+    wait_for_server,
+)
 from .workspace import plugin_dirs_for, register_plugins, resolve_launch_target
 
 
-def _start_local_server(app: QApplication, port: int) -> ServerManager:
-    """Start the local server and wait for it, with a note on screen meanwhile."""
+def _start_local_server(port: int) -> tuple[ServerManager, bool]:
+    """Start the local server and wait for it behind a dialog with Cancel.
+
+    Returns the manager and whether the user cancelled the wait; the server
+    keeps starting after a cancel.
+    """
     manager = ServerManager(port=port)
     manager.start()
     if manager.process is None:
         QMessageBox.warning(None, "Server Not Started", manager.last_error)
-        return manager
+        return manager, False
 
-    note = QMessageBox(
-        QMessageBox.Icon.Information,
-        "Cuvis.AI UI",
-        f"Starting the local cuvis-ai-core server on port {port}...",
-        QMessageBox.StandardButton.NoButton,
-    )
-    note.show()
-    app.processEvents()
-    ready = manager.wait_ready(timeout=SERVER_READY_TIMEOUT)
-    note.close()
-    if not ready:
-        detail = f"\n\nServer output:\n{manager.last_error}" if manager.last_error else ""
+    waited = wait_for_server(manager, None)
+    if waited.status is TaskStatus.CANCELLED:
+        logger.info("Stopped waiting for the local server; it keeps starting.")
+        return manager, True
+    if not waited.value:
+        output = waited.error or manager.last_error
+        detail = f"\n\nServer output:\n{output}" if output else ""
         QMessageBox.warning(
             None,
             "Server Start Warning",
@@ -54,7 +61,7 @@ def _start_local_server(app: QApplication, port: int) -> ServerManager:
             "You can still view and edit pipelines, but the node catalog needs "
             f"the server. Its log is {manager.log_path}.{detail}",
         )
-    return manager
+    return manager, False
 
 
 def _connect(host: str, port: int) -> CuvisAIClient | None:
@@ -72,16 +79,23 @@ def _connect(host: str, port: int) -> CuvisAIClient | None:
             "the node catalog, inference, and training all require it.",
         )
         return None
-    try:
-        client = CuvisAIClient(host=host, port=port)
-        client.connect()
-    except Exception as e:
-        logger.warning(f"Failed to connect to gRPC server: {e}")
+    client = CuvisAIClient(host=host, port=port)
+    connected = run_blocking(
+        None,
+        "Connecting",
+        f"Connecting to the cuvis-ai-core server at {host}:{port}...",
+        lambda stop: client.connect(stop=stop),
+    )
+    if connected.status is TaskStatus.CANCELLED:
+        logger.info(f"Connecting to {host}:{port} cancelled.")
+        return None
+    if connected.status is TaskStatus.FAILED:
+        logger.warning(f"Failed to connect to gRPC server: {connected.error}")
         QMessageBox.warning(
             None,
             "Connection Failed",
             f"A process is listening on {host}:{port} but the gRPC handshake "
-            f"failed:\n{e}\n\n"
+            f"failed:\n{connected.error}\n\n"
             "If you just started the server, give it a few seconds for "
             "torch + CUDA to finish loading, then use Tools > Connect to "
             "Server to retry.",
@@ -144,11 +158,13 @@ def main(
         app.setWindowIcon(QIcon(str(icon_path)))
 
     server_manager: ServerManager | None = None
+    wait_cancelled = False
     wants_server = start_server or conn.get("auto_start", False)
     if conn["mode"] == "local" and wants_server and not is_listening(host, port):
-        server_manager = _start_local_server(app, port)
+        server_manager, wait_cancelled = _start_local_server(port)
 
-    client = _connect(host, port)
+    # After the user's own cancel, no "Server Not Running" box: the status bar says why
+    client = None if wait_cancelled else _connect(host, port)
     window = MainWindow(client=client)
     window.set_server_manager(server_manager)
 
@@ -168,27 +184,61 @@ def main(
         if current_client is None:
             window.set_known_plugins(None)
             return
-        dirs = plugin_dirs_for(plugins_dirs, window.current_folder)
-        try:
-            registration = register_plugins(
-                current_client, collect_plugin_entries(dirs), fresh_session=fresh_session
-            )
-        except Exception as e:
-            logger.error(f"Failed to register plugins: {e}", exc_info=True)
-            # The session may already be a fresh, empty one: offer no nodes or
-            # plugin names rather than the previous session's.
+
+        def drop_catalog() -> None:
+            # The session may already be a fresh one holding part of the set or
+            # nothing: offer no nodes or plugin names rather than stale ones.
             window.node_registry.clear()
             window.node_registry.register_with_graph(window.graph)
             palette.refresh_nodes([])
             window.set_known_plugins(set())
+
+        def fail(error: str, exc: BaseException | None = None) -> None:
+            # A plain traceback: loguru's diagnose mode would print variable
+            # values, such as a manifest's repository URL with its token.
+            trace = "\n" + "".join(traceback.format_exception(exc)) if exc else ""
+            logger.error(f"Failed to register plugins: {error}{trace}")
+            drop_catalog()
             QMessageBox.warning(
                 window,
                 "Plugin Load Error",
-                f"Failed to register plugins:\n{e}\n\n"
+                f"Failed to register plugins:\n{error}\n\n"
                 "If plugin settings are stale, delete the persisted file and "
                 f"restart:\n{get_plugin_store_path()}",
             )
+
+        dirs = plugin_dirs_for(plugins_dirs, window.current_folder)
+        try:
+            entries = collect_plugin_entries(dirs)
+        except Exception as e:
+            fail(str(e), e)
             return
+        registered = run_blocking(
+            window,
+            "Registering plugins",
+            "Registering the plugins with the server...",
+            lambda stop: register_plugins(
+                current_client, entries, fresh_session=fresh_session, stop=stop
+            ),
+        )
+        if registered.status is TaskStatus.FAILED:
+            fail(registered.error)
+            return
+        if registered.status is TaskStatus.CANCELLED:
+            drop_catalog()
+            # Posted, not shown now: a folder switch opens its first pipeline
+            # right after this returns, and its "Opened:" message would replace
+            # the note on why the palette is empty.
+            QTimer.singleShot(
+                0,
+                lambda: window.statusBar().showMessage(
+                    "Plugin registration cancelled. "
+                    "Tools > Refresh Nodes registers the plugins again."
+                ),
+            )
+            return
+        registration = registered.value
+        assert registration is not None
 
         window.node_registry.clear()
         window.node_registry.register_nodes(registration.nodes)
@@ -241,6 +291,9 @@ def main(
         refresh_plugins(fresh_session=False)
         if pipeline is not None:
             window.open_pipeline(pipeline)
+    if wait_cancelled:
+        # Last, so opening a pipeline does not replace it
+        window.statusBar().showMessage(SERVER_WAIT_CANCELLED)
 
     sys.exit(app.exec())
 

@@ -47,6 +47,7 @@ from ..settings.plugins import (
     save_plugin_entries,
     write_manifest_temp,
 )
+from .blocking_task import TaskStatus, run_blocking
 
 STATUS_COL_LOAD = 0
 STATUS_COL_NAME = 1
@@ -423,7 +424,9 @@ class PluginManagerDialog(QDialog):
 
         temp_path = write_manifest_temp(manifest)
         try:
-            result = self._client.load_plugins(temp_path)
+            result = self._register(temp_path)
+            if result is None:
+                return
 
             loaded = result.get("loaded_plugins", [])
             failed = result.get("failed_plugins", [])
@@ -665,6 +668,26 @@ class PluginManagerDialog(QDialog):
         self._plugin_entries = merge_plugin_entries(self._plugin_entries, new_entries)
         save_plugin_entries(self._plugin_entries)
 
+    def _register(self, manifest_path: str | Path) -> dict[str, Any] | None:
+        """Send a manifest's plugins to the server behind a progress dialog.
+
+        Returns the server's answer, or None when the user cancelled: plugins
+        sent before the cancel stay in the session but are not saved, and the
+        refresh after this dialog closes registers the saved set again. A
+        failure raises RuntimeError with the server's message.
+        """
+        result = run_blocking(
+            self,
+            "Loading plugins",
+            "Registering the plugins with the server...",
+            lambda stop: self._client.load_plugins(manifest_path, stop=stop),
+        )
+        if result.status is TaskStatus.CANCELLED:
+            return None
+        if result.status is TaskStatus.FAILED:
+            raise RuntimeError(result.error)
+        return result.value
+
     def _format_failed_plugins(self, failed: Any) -> str:
         if isinstance(failed, dict):
             return "\n".join(f"  {k}: {v}" for k, v in failed.items())
@@ -823,12 +846,14 @@ class PluginManagerDialog(QDialog):
         try:
             temp_path = write_manifest_temp(payload)
             try:
-                result = self._client.load_plugins(temp_path)
+                result = self._register(temp_path)
             finally:
                 try:
                     temp_path.unlink()
                 except Exception:
                     pass
+            if result is None:
+                return
 
             loaded = result.get("loaded_plugins", [])
             failed = result.get("failed_plugins", [])
@@ -871,7 +896,9 @@ class PluginManagerDialog(QDialog):
         temp_path = write_manifest_temp(manifest)
 
         try:
-            result = self._client.load_plugins(temp_path)
+            result = self._register(temp_path)
+            if result is None:
+                return
 
             loaded = result.get("loaded_plugins", [])
             failed = result.get("failed_plugins", [])

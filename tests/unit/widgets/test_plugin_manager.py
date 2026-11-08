@@ -1,5 +1,6 @@
 """Unit tests for PluginManager widget."""
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
+from cuvis_ai_ui.grpc.client import OperationCancelled
 from cuvis_ai_ui.settings.plugins import (
     collect_plugin_entries,
     load_plugin_entries,
@@ -1365,6 +1367,96 @@ def test_load_plugins_grpc_error(mock_crit, mock_temp, qapp, mock_grpc_client, t
     dialog._load_plugins([{"name": "p", "repo": "x", "tag": "v1"}], source="git")
 
     mock_crit.assert_called_once()
+    assert "gRPC down" in mock_crit.call_args[0][2]
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox")
+def test_load_plugins_runs_behind_the_progress_dialog(
+    mock_box, mock_temp, qapp, mock_grpc_client, tmp_path
+):
+    """The load runs in the blocking-task runner: load_plugins gets its stop event."""
+    temp_file = tmp_path / "m.yaml"
+    temp_file.touch()
+    mock_temp.return_value = str(temp_file)
+    mock_grpc_client.load_plugins.return_value = {"loaded_plugins": ["p"], "failed_plugins": []}
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._load_plugins([{"name": "p", "repo": "x", "tag": "v1"}])
+
+    stop = mock_grpc_client.load_plugins.call_args.kwargs["stop"]
+    assert isinstance(stop, threading.Event)
+    mock_box.information.assert_called_once()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox")
+def test_a_cancelled_load_shows_no_box_and_saves_nothing(
+    mock_box, mock_temp, qapp, mock_grpc_client, tmp_path
+):
+    temp_file = tmp_path / "m.yaml"
+    temp_file.touch()
+    mock_temp.return_value = str(temp_file)
+    mock_grpc_client.load_plugins.side_effect = OperationCancelled()
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    with patch.object(dialog, "_persist_plugins_from_manifest") as persist:
+        dialog._load_plugins([{"name": "p", "repo": "x", "tag": "v1"}], source="git")
+
+    persist.assert_not_called()
+    mock_box.information.assert_not_called()
+    mock_box.warning.assert_not_called()
+    mock_box.critical.assert_not_called()
+    assert not temp_file.exists()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.build_manifest")
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries_from_directory")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox")
+def test_a_cancelled_directory_load_saves_nothing(
+    mock_box, mock_load_dir, mock_build, mock_temp, mock_save, qapp, mock_grpc_client, tmp_path
+):
+    mock_load_dir.return_value = [{"name": "alpha", "enabled": True, "config": {}}]
+    mock_build.return_value = [{"name": "alpha", "repo": "x", "tag": "v1"}]
+    temp_file = tmp_path / "merged.yaml"
+    temp_file.touch()
+    mock_temp.return_value = str(temp_file)
+    mock_grpc_client.load_plugins.side_effect = OperationCancelled()
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+    dialog._load_directory_plugins()
+
+    mock_save.assert_not_called()
+    mock_box.critical.assert_not_called()
+    assert not temp_file.exists()
+
+
+@patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.build_manifest")
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries_from_directory")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox")
+def test_a_failed_directory_load_names_the_error_and_saves_nothing(
+    mock_box, mock_load_dir, mock_build, mock_temp, mock_save, qapp, mock_grpc_client, tmp_path
+):
+    mock_load_dir.return_value = [{"name": "alpha", "enabled": True, "config": {}}]
+    mock_build.return_value = [{"name": "alpha", "repo": "x", "tag": "v1"}]
+    temp_file = tmp_path / "merged.yaml"
+    temp_file.touch()
+    mock_temp.return_value = str(temp_file)
+    mock_grpc_client.load_plugins.side_effect = RuntimeError("gRPC down")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+    dialog._load_directory_plugins()
+
+    mock_save.assert_not_called()
+    mock_box.critical.assert_called_once()
+    assert "gRPC down" in mock_box.critical.call_args.args[2]
+    assert not temp_file.exists()
 
 
 # ---------------------------------------------------------------------------

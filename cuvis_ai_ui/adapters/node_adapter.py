@@ -14,6 +14,7 @@ from cuvis_ai_schemas.extensions.ui.node_display import CATEGORY_STYLES, TAG_STY
 from cuvis_ai_schemas.grpc.conversions import proto_to_node_category, proto_to_node_tag
 from cuvis_ai_schemas.pipeline.ports import PortSpec
 
+from .node_item import CuvisNodeItem
 from .port_helpers import create_input_port, create_output_port
 
 
@@ -145,7 +146,7 @@ class CuvisNodeAdapter(BaseNode):
 
     def __init__(self) -> None:
         """Initialize the node adapter."""
-        super().__init__()
+        super().__init__(qgraphics_item=CuvisNodeItem)
 
         # cuvis-ai specific attributes
         self._cuvis_class_path: str = ""
@@ -255,8 +256,10 @@ class CuvisNodeAdapter(BaseNode):
         self._cuvis_tags = list(node_info.get("tags", []))
         self._cuvis_icon_svg = node_info.get("icon_svg", b"")
 
-        # Set node display name
+        # Display name until the pipeline names the node; the class stays on
+        # the canvas as the node's second label line
         self.set_name(self._cuvis_class_name)
+        self.view.set_class_label(self._cuvis_class_name)
 
         # Colour from schemas CATEGORY_STYLES; only RGB accepted by NodeGraphQt
         r, g, b, _ = category_color(self._cuvis_category)
@@ -531,6 +534,11 @@ class NodeRegistry:
         """
         from loguru import logger
 
+        # Stale node types leave the graph in two places. Here: types whose class
+        # is gone from the registry (a plugin dropped by a folder switch or the
+        # Plugin Manager), which the loop below never visits. In that loop,
+        # _drop_stale_node_type: a type still registered whose class was replaced
+        # under the same type name (same plugin, changed ports).
         current = {node_class.type_ for node_class in self._node_classes.values()}
         stale = self._graph_types - current
         for node_type in stale:

@@ -1,12 +1,17 @@
 """Pipeline folders, launch targets and plugin registration."""
 
 import json
+import threading
+from types import SimpleNamespace
 from unittest.mock import Mock, call
 
+import grpc
 import pytest
 
+from cuvis_ai_ui.grpc.client import CuvisAIClient, OperationCancelled
 from cuvis_ai_ui.workspace import (
     PluginRegistration,
+    _replace_session,
     list_pipelines,
     plugin_dirs_for,
     register_plugins,
@@ -100,7 +105,7 @@ class TestRegisterPlugins:
     def client(self, mock_grpc_client):
         sent = {}
 
-        def load_plugins(path):
+        def load_plugins(path, stop=None):
             sent["path"] = path
             sent["manifest"] = json.loads(open(path, encoding="utf-8").read())
             return {"loaded_plugins": ["a"], "failed_plugins": ["c"]}
@@ -150,6 +155,59 @@ class TestRegisterPlugins:
         assert client.close_session.call_count == 2
         client.create_session.assert_called_once()
 
+    @pytest.mark.parametrize("closes", [[False], [False, False]])
+    def test_a_cancel_during_a_failed_close_keeps_the_old_session(self, client, closes):
+        """Cancel lands while a CloseSession stalls and fails: no retry and no new
+        session, so the client keeps the session it has; nothing is registered."""
+        stop = threading.Event()
+        results = iter(closes)
+
+        def close():
+            if len(closes) == 1 or client.close_session.call_count == 2:
+                stop.set()
+            return next(results)
+
+        client.close_session.side_effect = close
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        assert client.close_session.call_count == len(closes)
+        client.create_session.assert_not_called()
+        client.load_plugins.assert_not_called()
+        client.list_available_nodes.assert_not_called()
+
+    def test_a_cancel_after_a_refused_close_still_opens_a_new_session(self, client):
+        """A server can answer CloseSession with success=False; the client drops its
+        session id anyway, so a Cancel during that close must not leave the client
+        without any session."""
+        stop = threading.Event()
+
+        def refused():
+            stop.set()
+            client.session_id = None
+            return False
+
+        client.close_session.side_effect = refused
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        assert client.close_session.call_count == 1
+        client.create_session.assert_called_once()
+        client.list_available_nodes.assert_not_called()
+
+    def test_a_cancel_after_the_old_session_closed_still_opens_the_new_one(self, client):
+        """With the old session closed, the new one is opened anyway so the client
+        is never left without a session; the cancel stops before the node list."""
+        stop = threading.Event()
+
+        def close():
+            stop.set()
+            return True
+
+        client.close_session.side_effect = close
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        client.create_session.assert_called_once()
+        client.list_available_nodes.assert_not_called()
+
     def test_a_session_that_will_not_close_is_still_replaced(self, client):
         client.close_session.return_value = False
         result = register_plugins(client, [_entry("a")], fresh_session=True)
@@ -167,6 +225,102 @@ class TestRegisterPlugins:
         client.load_plugins.assert_not_called()
         assert client.list_available_nodes.call_args_list == [call()]
         assert result.loaded == [] and result.failed == []
+
+    def test_a_cancel_before_it_starts_keeps_the_session(self, client):
+        stop = threading.Event()
+        stop.set()
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        client.close_session.assert_not_called()
+        client.load_plugins.assert_not_called()
+
+    def test_the_stop_event_reaches_load_plugins(self, client):
+        stop = threading.Event()
+        register_plugins(client, [_entry("a")], stop=stop)
+        assert client.load_plugins.call_args.kwargs == {"stop": stop}
+
+    def test_a_cancel_during_loading_skips_listing_and_removes_the_manifest(self, client):
+        stop = threading.Event()
+        sent = client.sent
+        loader = client.load_plugins.side_effect
+
+        def load_then_cancel(path, stop=None):
+            result = loader(path, stop)
+            cancel.set()
+            return result
+
+        cancel = stop
+
+        client.load_plugins.side_effect = load_then_cancel
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], stop=stop)
+        client.list_available_nodes.assert_not_called()
+        assert not sent["path"].exists()
+
+
+class _Unavailable(grpc.RpcError):
+    def details(self):
+        return "unavailable"
+
+
+class _SessionStub:
+    """A gRPC stub whose CloseSession answers from a script: ok, refused or error."""
+
+    def __init__(self, closes):
+        self.closes = list(closes)
+        self.close_calls = 0
+
+    def CloseSession(self, request, timeout):  # noqa: N802
+        self.close_calls += 1
+        outcome = self.closes.pop(0)
+        if outcome == "error":
+            raise _Unavailable()
+        return SimpleNamespace(success=outcome == "ok")
+
+    def CreateSession(self, request, timeout):  # noqa: N802
+        return SimpleNamespace(session_id="new")
+
+
+@pytest.mark.parametrize(
+    ("session", "closes", "close_calls"),
+    [
+        ("old", ["ok"], 1),
+        ("old", ["refused"], 1),
+        ("old", ["error", "ok"], 2),
+        ("old", ["error", "error"], 2),
+        (None, [], 0),
+    ],
+)
+def test_the_session_swap_on_a_real_client(session, closes, close_calls):
+    """Against the real CuvisAIClient.close_session: a refused close drops the
+    session id and needs no retry, an RPC error keeps it and is retried once, a
+    client without a session sends no CloseSession; each ends on a new session."""
+    client = CuvisAIClient()
+    client._connected = True
+    client.stub = _SessionStub(closes)
+    client.session_id = session
+
+    _replace_session(client)
+
+    assert client.stub.close_calls == close_calls
+    assert client.session_id == "new"
+
+
+def test_a_client_without_a_session_gets_one_even_when_stop_is_set():
+    """With no session there is nothing to close, so the swap opens the new
+    session at once; a stop already set is left to register_plugins's next
+    checkpoint, and the client never ends up without a session."""
+    client = CuvisAIClient()
+    client._connected = True
+    client.stub = _SessionStub([])
+    client.session_id = None
+    stop = threading.Event()
+    stop.set()
+
+    _replace_session(client, stop)
+
+    assert client.stub.close_calls == 0
+    assert client.session_id == "new"
 
 
 class TestPluginRegistrationStatus:
