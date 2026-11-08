@@ -306,6 +306,23 @@ def test_the_session_swap_on_a_real_client(session, closes, close_calls):
     assert client.session_id == "new"
 
 
+def test_a_client_without_a_session_gets_one_even_when_stop_is_set():
+    """With no session there is nothing to close, so the swap opens the new
+    session at once; a stop already set is left to register_plugins's next
+    checkpoint, and the client never ends up without a session."""
+    client = CuvisAIClient()
+    client._connected = True
+    client.stub = _SessionStub([])
+    client.session_id = None
+    stop = threading.Event()
+    stop.set()
+
+    _replace_session(client, stop)
+
+    assert client.stub.close_calls == 0
+    assert client.session_id == "new"
+
+
 class TestPluginRegistrationStatus:
     def test_counts_nodes_and_plugins(self):
         result = PluginRegistration(nodes=[{}] * 3, loaded=["a", "b"], failed=[])
