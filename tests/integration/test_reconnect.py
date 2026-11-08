@@ -210,6 +210,7 @@ def test_a_cancelled_port_switch_drops_the_client_of_the_server_it_stopped(
     wait. Cancelling that wait must not keep a client of the stopped server
     marked connected; a second cancelled attempt stays disconnected."""
     old = MagicMock()
+    old.host, old.port = "localhost", 50051
     window = MainWindow(client=old)
     qtbot.addWidget(window)
     old_manager = MagicMock()
@@ -242,6 +243,46 @@ def test_a_cancelled_port_switch_drops_the_client_of_the_server_it_stopped(
     assert new_manager.wait_ready.call_count == 2
     old.disconnect.assert_not_called()
     new_manager.stop.assert_not_called()
+    mock_client_cls.return_value.connect.assert_not_called()
+    mock_messagebox.warning.assert_not_called()
+
+
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
+def test_cancelled_local_starts_keep_an_unrelated_remote_connection(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    """A cancelled local start leaves the remote client and this window's new
+    manager side by side. Switching to another local port then stops that
+    manager, which never served the remote client: cancelling again must keep
+    the remote connection."""
+    remote = MagicMock()
+    remote.host, remote.port = "remote.example", 50051
+    window = MainWindow(client=remote)
+    qtbot.addWidget(window)
+
+    manager_a, manager_b = MagicMock(), MagicMock()
+    manager_a.port, manager_b.port = 50051, 50052
+    for manager in (manager_a, manager_b):
+        manager.is_running.return_value = True
+        manager.wait_ready.side_effect = OperationCancelled()
+    mock_manager_cls.side_effect = [manager_a, manager_b]
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    for port in (50051, 50052):
+        dialog.get_settings.return_value = _local_settings(port=port)
+        window._show_connection_dialog()
+
+        assert window.client is remote
+        assert window._connection_label.text() == "Connected"
+        assert window.statusBar().currentMessage() == SERVER_WAIT_CANCELLED
+
+    manager_a.stop.assert_called_once()
+    remote.disconnect.assert_not_called()
     mock_client_cls.return_value.connect.assert_not_called()
     mock_messagebox.warning.assert_not_called()
 

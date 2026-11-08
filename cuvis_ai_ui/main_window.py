@@ -45,6 +45,9 @@ from .widgets.pipeline_browser import PipelineBrowser
 from .widgets.pipeline_info_dialog import PipelineInfoDialog
 from .workspace import list_pipelines
 
+# Host names a client of a server on this machine connects to.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 
 class _ViewerModifierSync(QObject):
     """Keep NodeGraphQt viewer modifier state in sync with mouse events."""
@@ -738,15 +741,22 @@ class MainWindow(QMainWindow):
         # remote, switching to a different local port nothing listens on yet,
         # or reconnecting to a manager that is no longer answering. Otherwise
         # that process keeps running, unreachable, until the app exits.
-        stopped_own_server = False
+        stopped_client_server = False
         if self._server_manager is not None and (
             settings["mode"] == "remote"
             or self._server_manager.port != port
             or not self._server_manager.is_running()
         ):
+            # A cancelled local start can leave this manager beside a client of
+            # another server (a remote one, say); only its own client goes with it.
+            client = self._client
+            stopped_client_server = (
+                client is not None
+                and client.host in _LOOPBACK_HOSTS
+                and client.port == self._server_manager.port
+            )
             self._server_manager.stop()
             self._server_manager = None
-            stopped_own_server = True
 
         # Local mode means this machine. Start a server unless one already listens
         # (started outside the UI, or by an earlier run). A manager still here is
@@ -760,7 +770,7 @@ class MainWindow(QMainWindow):
                     self._server_manager.start()
                 waited = wait_for_server(self._server_manager, self)
                 if waited.status is TaskStatus.CANCELLED:
-                    if not stopped_own_server:
+                    if not stopped_client_server:
                         # Cancel changes nothing: the old connection, if any, stays
                         self._status_bar.showMessage(SERVER_WAIT_CANCELLED)
                         return
