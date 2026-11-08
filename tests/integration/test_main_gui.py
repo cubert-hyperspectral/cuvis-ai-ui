@@ -164,28 +164,33 @@ def test_unreadable_plugin_manifests_empty_the_catalog_and_log_the_traceback(
 ):
     """A manifest that cannot be read fails the refresh before anything is
     registered: no stale catalog, a warning naming the error, and the log
-    keeps the traceback."""
+    keeps the traceback, without the variable values a repository token could
+    sit in."""
     pipeline = tmp_path / "one.yaml"
     pipeline.write_text(PIPELINE.format(name="one"), encoding="utf-8")
     window, register, _ = launch(pipeline)
     QMessageBox.warning.reset_mock()
 
     def unreadable(dirs):
-        raise ValueError("bad manifest: p.yaml")
+        repo = "https://user:tok456@example.com/p.git"
+        raise ValueError("bad manifest: p.yaml" if repo else "")
 
     monkeypatch.setattr(main_module, "collect_plugin_entries", unreadable)
     records = []
-    sink = logger.add(lambda message: records.append(message.record), level="ERROR")
+    sink = logger.add(lambda message: records.append(str(message)), level="ERROR", diagnose=True)
     try:
         window.refresh_nodes_action.trigger()
     finally:
         logger.remove(sink)
 
+    text = "".join(records)
     assert register.call_count == 1
     assert window.node_registry.get_all_nodes() == []
     assert window._serializer.known_plugins == set()
     assert "bad manifest: p.yaml" in QMessageBox.warning.call_args.args[2]
-    assert [r["exception"].type for r in records if r["exception"]] == [ValueError]
+    assert "Traceback" in text
+    assert "ValueError: bad manifest: p.yaml" in text
+    assert "tok456" not in text
 
 
 def test_a_cancelled_refresh_empties_the_catalog_without_an_error_box(launch, qtbot, tmp_path):

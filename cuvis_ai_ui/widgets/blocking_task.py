@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import enum
 import threading
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar
@@ -86,7 +87,11 @@ def run_blocking(
         except OperationCancelled:
             result = TaskResult(TaskStatus.CANCELLED)
         except BaseException as exc:  # noqa: BLE001 - every failure must end the wait
-            logger.opt(exception=exc).warning(f"{title} failed: {exc}")
+            # The plain traceback, not loguru's exception record: its diagnose
+            # mode prints variable values, and a plugin manifest's repository
+            # URL can carry a token.
+            trace = "".join(traceback.format_exception(exc))
+            logger.warning(f"{title} failed: {exc}\n{trace}")
             result = TaskResult(TaskStatus.FAILED, error=str(exc) or type(exc).__name__)
         outcome.append(result)
 

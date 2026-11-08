@@ -6,6 +6,7 @@ pipeline YAML file or a folder of pipelines.
 """
 
 import sys
+import traceback
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -193,7 +194,10 @@ def main(
             window.set_known_plugins(set())
 
         def fail(error: str, exc: BaseException | None = None) -> None:
-            logger.opt(exception=exc).error(f"Failed to register plugins: {error}")
+            # A plain traceback: loguru's diagnose mode would print variable
+            # values, such as a manifest's repository URL with its token.
+            trace = "\n" + "".join(traceback.format_exception(exc)) if exc else ""
+            logger.error(f"Failed to register plugins: {error}{trace}")
             drop_catalog()
             QMessageBox.warning(
                 window,

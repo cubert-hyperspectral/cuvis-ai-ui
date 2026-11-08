@@ -4,6 +4,7 @@ import threading
 from unittest.mock import Mock
 
 import pytest
+from loguru import logger
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QProgressDialog, QPushButton
@@ -55,6 +56,29 @@ def test_an_exception_is_failed_with_its_message(qapp):
     assert result.status is TaskStatus.FAILED
     assert result.error == "server went away"
     assert result.value is None
+
+
+def test_a_failure_log_has_the_traceback_but_no_variable_values(qapp):
+    """Plugin manifests can carry repository URLs with tokens. A failure is
+    logged with its traceback, but even a sink that renders variable values
+    (loguru's diagnose, on by default) must not show them."""
+    records = []
+    sink = logger.add(lambda message: records.append(str(message)), level="WARNING", diagnose=True)
+
+    def leaky(stop):
+        url = "https://user:tok123@example.com/plugin.git"
+        raise RuntimeError("clone failed for " + url[:5])
+
+    try:
+        result = run_blocking(None, "Title", "Working...", leaky)
+    finally:
+        logger.remove(sink)
+
+    text = "".join(records)
+    assert result.status is TaskStatus.FAILED
+    assert "Traceback" in text
+    assert "RuntimeError: clone failed for https" in text
+    assert "tok123" not in text
 
 
 def test_an_exception_without_a_message_names_its_type(qapp):
