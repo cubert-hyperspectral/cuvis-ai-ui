@@ -6,7 +6,7 @@
 - Starting the local server, connecting and registering plugins no longer freeze the window. Each runs behind a progress dialog with a Cancel button: at startup, on a folder switch, in the Plugin Manager and on Tools > Connect to Server. Cancel takes effect at the next step; a server that is starting keeps starting, and a cancelled registration empties the palette until Tools > Refresh Nodes.
 - Cancel on Tools > Connect to Server keeps the current connection if it comes before that connection is closed and the switch has not stopped the local server it used; otherwise the window says it is not connected.
 - The installer writes the cuvis-ai-core version into the source it ships (setuptools-scm `fallback_version`), so environments the installed server builds from that source get a version. After upgrading, run Start menu > Cuvis.AI UI > Setup local server once, or install with the server option, to refresh the copied source. A core worktree's `.git` file is no longer copied into the installer, and the server setup skips one that an older installer left behind.
-- Waiting for the server and failed connect attempts no longer leave gRPC channels open.
+- Waiting for the server, failed connect attempts and a Cancel that drops the client of a stopped local server no longer leave gRPC channels open.
 - The tray launcher redirects its output only when it runs, and a test keeps its per-user data folder in step with the UI's.
 
 ## 0.5.0 - 2026-11-07
