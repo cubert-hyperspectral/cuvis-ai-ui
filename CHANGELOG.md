@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - 2026-11-08
+
+- Starting the local server, connecting and registering plugins no longer freeze the window. Each runs behind a progress dialog with a Cancel button: at startup, on a folder switch, in the Plugin Manager and on Tools > Connect to Server. Cancel takes effect at the next step; a server that is starting keeps starting, and a cancelled registration empties the palette until Tools > Refresh Nodes.
+- Cancelling the server wait on Tools > Connect to Server keeps the current connection.
+- The installer writes the cuvis-ai-core version into the source it ships (setuptools-scm `fallback_version`), so environments the installed server builds from that source get a version. After upgrading, run Start menu > Cuvis.AI UI > Setup local server once, or install with the server option, to refresh the copied source. A core worktree's `.git` file is no longer copied into the installer.
+- Waiting for the server no longer leaves a gRPC channel open on every poll.
+- The tray launcher redirects its output only when it runs, and a test keeps its per-user data folder in step with the UI's.
+
 ## 0.5.0 - 2026-11-07
 
 - The node palette lists the nodes of every released cuvis-ai plugin: the bundled catalog `cuvis_ai_ui/catalog/` holds the 18 git-pinned plugin manifests of cuvis-ai v0.22.6 (247 nodes), replaces `cuvis_ai_catalog.yaml`, and ships in the wheel and the installer. `scripts/regenerate_catalog.py --tag <tag>` mirrors a newer release.

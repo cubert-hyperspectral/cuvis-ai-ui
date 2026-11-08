@@ -68,6 +68,11 @@ starts the server itself. It uses the first of: the per-user server-venv the ins
 `<repos>/cuvis-ai-ui/<checkout>`, or its own interpreter if `cuvis_ai_core` imports there. The server's output goes to `server.log` in the per-user data
 folder (`%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\` on Windows).
 
+While the UI waits for a starting server (up to 120 s), connects or registers plugins, a progress
+dialog with a **Cancel** button stays on screen and the windows keep repainting. Cancel takes effect
+at the next step: a server that is starting keeps starting (**Tools > Connect to Server** picks it
+up), and a cancelled plugin registration leaves the palette empty until **Tools > Refresh Nodes**.
+
 ### Plugins
 
 The palette lists the nodes of every registered plugin manifest. The UI registers, in this
@@ -110,7 +115,7 @@ Output: `installer\Output\cuvis-ai-ui-setup-<version>.exe` (~150 MB)
 The Inno Setup wizard exposes a checkbox **"Install the local cuvis-ai-core gRPC server (~3 GB download)"** under "Server runtime:". Uncheck it if the user only wants the UI (e.g. to connect to a remote server). When checked, `installer\bootstrap.ps1` runs at the end of Inno Setup and does what the [cuvis-ai install guide](https://cubert-hyperspectral.github.io/cuvis-ai-docs-revision/user-guide/installation/) tells a developer to do, in one shot:
 
 1. Installs `uv` if not on PATH (`irm https://astral.sh/uv/install.ps1 | iex`).
-2. Copies the shipped cuvis-ai-core source to `%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\server\source\`.
+2. Copies the shipped cuvis-ai-core source to `%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\server\source\`. The source has no `.git`; `build.bat` wrote its version into its `pyproject.toml` (setuptools-scm `fallback_version`), so this install and every environment the server later builds from the source resolve it.
 3. `uv venv --python 3.11` at `%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\server-venv\`, then `uv sync` against the source: cuvis-ai-core, torch CUDA 12.8 (via `[tool.uv.sources]`), cuvis-ai-schemas and their dependencies.
 4. `uv pip install pystray` for the tray icon.
 5. Downloads FFmpeg LGPL shared + Graphviz portable into `{app}\ffmpeg\` and `{app}\graphviz\`.
