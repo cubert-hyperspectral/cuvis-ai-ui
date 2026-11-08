@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from click.testing import CliRunner
+from loguru import logger
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QMessageBox
 
@@ -36,8 +37,16 @@ NODE = {
 }
 
 
+# main() wires closures into each window it builds (refresh_plugins, the
+# palette), so the window sits in reference cycles. qtbot.addWidget would
+# deleteLater it; once a later test processes events, the C++ window goes
+# while those cycles live, and the final garbage collection corrupts the heap.
+# The windows are never shown, so they stay alive until the session ends.
+_LAUNCHED_WINDOWS = []
+
+
 @pytest.fixture
-def launch(qtbot, monkeypatch):
+def launch(qapp, monkeypatch):
     """Run main() against a fake server; returns (window, register_plugins mock)."""
     previous_names = (QCoreApplication.applicationName(), QCoreApplication.organizationName())
     windows = []
@@ -45,7 +54,7 @@ def launch(qtbot, monkeypatch):
 
     def make_window(*args, **kwargs):
         window = real_window(*args, **kwargs)
-        qtbot.addWidget(window)
+        _LAUNCHED_WINDOWS.append(window)
         window.show = lambda: None
         windows.append(window)
         return window
@@ -150,7 +159,36 @@ def test_a_failed_refresh_shows_no_stale_catalog(launch, tmp_path):
     assert "server went away" in QMessageBox.warning.call_args.args[2]
 
 
-def test_a_cancelled_refresh_empties_the_catalog_without_an_error_box(launch, tmp_path):
+def test_unreadable_plugin_manifests_empty_the_catalog_and_log_the_traceback(
+    launch, monkeypatch, tmp_path
+):
+    """A manifest that cannot be read fails the refresh before anything is
+    registered: no stale catalog, a warning naming the error, and the log
+    keeps the traceback."""
+    pipeline = tmp_path / "one.yaml"
+    pipeline.write_text(PIPELINE.format(name="one"), encoding="utf-8")
+    window, register, _ = launch(pipeline)
+    QMessageBox.warning.reset_mock()
+
+    def unreadable(dirs):
+        raise ValueError("bad manifest: p.yaml")
+
+    monkeypatch.setattr(main_module, "collect_plugin_entries", unreadable)
+    records = []
+    sink = logger.add(lambda message: records.append(message.record), level="ERROR")
+    try:
+        window.refresh_nodes_action.trigger()
+    finally:
+        logger.remove(sink)
+
+    assert register.call_count == 1
+    assert window.node_registry.get_all_nodes() == []
+    assert window._serializer.known_plugins == set()
+    assert "bad manifest: p.yaml" in QMessageBox.warning.call_args.args[2]
+    assert [r["exception"].type for r in records if r["exception"]] == [ValueError]
+
+
+def test_a_cancelled_refresh_empties_the_catalog_without_an_error_box(launch, qtbot, tmp_path):
     """Cancel during registration may leave part of the plugin set in a fresh
     session, so the palette empties as after a failure, but the user cancelled:
     a status note, no error box."""
@@ -165,7 +203,28 @@ def test_a_cancelled_refresh_empties_the_catalog_without_an_error_box(launch, tm
     assert window.node_registry.get_all_nodes() == []
     assert window._serializer.known_plugins == set()
     assert not QMessageBox.warning.called
-    assert "cancelled" in window.statusBar().currentMessage()
+    qtbot.waitUntil(
+        lambda: window.statusBar().currentMessage().startswith("Plugin registration cancelled"),
+        timeout=1000,
+    )
+
+
+def test_a_cancelled_registration_note_outlasts_the_opened_message(
+    launch, monkeypatch, qtbot, tmp_path
+):
+    """Opening a folder registers its plugins, then opens its first pipeline,
+    whose "Opened:" message must not wipe the note on why the palette is empty."""
+    (tmp_path / "a.yaml").write_text(PIPELINE.format(name="a"), encoding="utf-8")
+    monkeypatch.setattr(main_module, "register_plugins", Mock(side_effect=OperationCancelled()))
+
+    window, _, _ = launch(tmp_path)
+
+    assert window.current_file == (tmp_path / "a.yaml").absolute()
+    assert window.node_registry.get_all_nodes() == []
+    qtbot.waitUntil(
+        lambda: window.statusBar().currentMessage().startswith("Plugin registration cancelled"),
+        timeout=1000,
+    )
 
 
 def test_a_cancelled_server_wait_skips_connecting(launch, monkeypatch, tmp_path):

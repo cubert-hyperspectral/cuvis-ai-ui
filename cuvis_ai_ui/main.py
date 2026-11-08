@@ -11,6 +11,7 @@ from pathlib import Path
 
 import click
 from loguru import logger
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -191,8 +192,8 @@ def main(
             palette.refresh_nodes([])
             window.set_known_plugins(set())
 
-        def fail(error: str) -> None:
-            logger.error(f"Failed to register plugins: {error}")
+        def fail(error: str, exc: BaseException | None = None) -> None:
+            logger.opt(exception=exc).error(f"Failed to register plugins: {error}")
             drop_catalog()
             QMessageBox.warning(
                 window,
@@ -206,7 +207,7 @@ def main(
         try:
             entries = collect_plugin_entries(dirs)
         except Exception as e:
-            fail(str(e))
+            fail(str(e), e)
             return
         registered = run_blocking(
             window,
@@ -221,8 +222,15 @@ def main(
             return
         if registered.status is TaskStatus.CANCELLED:
             drop_catalog()
-            window.statusBar().showMessage(
-                "Plugin registration cancelled. Tools > Refresh Nodes registers the plugins again."
+            # Posted, not shown now: a folder switch opens its first pipeline
+            # right after this returns, and its "Opened:" message would replace
+            # the note on why the palette is empty.
+            QTimer.singleShot(
+                0,
+                lambda: window.statusBar().showMessage(
+                    "Plugin registration cancelled. "
+                    "Tools > Refresh Nodes registers the plugins again."
+                ),
             )
             return
         registration = registered.value
