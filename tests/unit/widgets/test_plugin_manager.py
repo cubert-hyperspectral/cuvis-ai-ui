@@ -1434,6 +1434,31 @@ def test_a_cancelled_directory_load_saves_nothing(
     assert not temp_file.exists()
 
 
+@patch("cuvis_ai_ui.widgets.plugin_manager.save_plugin_entries")
+@patch("cuvis_ai_ui.widgets.plugin_manager.write_manifest_temp")
+@patch("cuvis_ai_ui.widgets.plugin_manager.build_manifest")
+@patch("cuvis_ai_ui.widgets.plugin_manager.load_plugin_entries_from_directory")
+@patch("cuvis_ai_ui.widgets.plugin_manager.QMessageBox")
+def test_a_failed_directory_load_names_the_error_and_saves_nothing(
+    mock_box, mock_load_dir, mock_build, mock_temp, mock_save, qapp, mock_grpc_client, tmp_path
+):
+    mock_load_dir.return_value = [{"name": "alpha", "enabled": True, "config": {}}]
+    mock_build.return_value = [{"name": "alpha", "repo": "x", "tag": "v1"}]
+    temp_file = tmp_path / "merged.yaml"
+    temp_file.touch()
+    mock_temp.return_value = str(temp_file)
+    mock_grpc_client.load_plugins.side_effect = RuntimeError("gRPC down")
+
+    dialog = PluginManagerDialog(client=mock_grpc_client)
+    dialog._directory_path.setText(str(tmp_path))
+    dialog._load_directory_plugins()
+
+    mock_save.assert_not_called()
+    mock_box.critical.assert_called_once()
+    assert "gRPC down" in mock_box.critical.call_args.args[2]
+    assert not temp_file.exists()
+
+
 # ---------------------------------------------------------------------------
 # SessionDialog tests
 # ---------------------------------------------------------------------------
