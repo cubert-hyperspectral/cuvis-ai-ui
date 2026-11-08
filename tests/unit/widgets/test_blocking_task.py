@@ -143,6 +143,48 @@ def test_escape_and_closing_the_dialog_cancel_too(qapp, how):
     )
 
 
+@pytest.mark.parametrize(
+    "gestures",
+    [("close",), ("cancel", "escape"), ("cancel", "close"), ("escape", "close")],
+)
+def test_no_dismissal_takes_the_dialog_down_before_the_worker_returns(qapp, gestures):
+    """Esc or the close button after a Cancel, or closing the window outright,
+    must not leave the windows unblocked while the worker still runs."""
+    release = threading.Event()
+    held = {}
+    seen = {}
+
+    def slow_to_stop(stop):
+        stop.wait(5)
+        release.wait(5)
+        raise OperationCancelled
+
+    def dismiss(gesture):
+        dialog = held.setdefault("dialog", _dialog())
+        assert dialog is not None
+        if gesture == "cancel":
+            dialog.findChild(QPushButton).click()
+        elif gesture == "escape":
+            QTest.keyClick(dialog, Qt.Key.Key_Escape)
+        else:
+            dialog.close()
+
+    def look_then_release():
+        dialog = held["dialog"]
+        seen["visible"] = dialog.isVisible()
+        seen["text"] = dialog.labelText()
+        release.set()
+
+    for i, gesture in enumerate(gestures):
+        _later(30 + 60 * i, lambda g=gesture: dismiss(g))
+    _later(300, look_then_release)
+    result = run_blocking(None, "Title", "Working...", slow_to_stop)
+
+    assert result.status is TaskStatus.CANCELLED
+    assert seen == {"visible": True, "text": "Cancelling..."}
+    assert _dialog() is None
+
+
 def test_a_value_returned_after_cancel_is_still_done(qapp):
     """Work that finished anyway is used: discarding a connect that went through
     would leave its server session open."""

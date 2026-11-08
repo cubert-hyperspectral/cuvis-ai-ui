@@ -99,15 +99,22 @@ def run_blocking(
 
     finished = False
 
+    def keep_up() -> None:
+        if not finished:
+            dialog.show()
+
     def on_cancel() -> None:
-        # QProgressDialog hides itself on Cancel; show it again as
+        # QProgressDialog hides itself on Cancel, and Esc or the close button
+        # hide it after this slot returns. Every dismissal puts it back up as
         # "Cancelling..." so the windows stay blocked until the worker returns.
-        if finished or stop.is_set():
+        if finished:
             return
-        stop.set()
-        dialog.setLabelText("Cancelling...")
-        dialog.setCancelButton(None)
-        dialog.show()
+        if not stop.is_set():
+            stop.set()
+            dialog.setLabelText("Cancelling...")
+            dialog.setCancelButton(None)
+        keep_up()
+        QTimer.singleShot(0, keep_up)
 
     dialog.canceled.connect(on_cancel)
     dialog.rejected.connect(on_cancel)
