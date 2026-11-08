@@ -4,35 +4,13 @@ Driven against a real NodeGraph, since the label layout lives in the
 NodeGraphQt item.
 """
 
-import pytest
-from NodeGraphQt import NodeGraph
 from NodeGraphQt.constants import LayoutDirectionEnum
 
 from cuvis_ai_ui.adapters import NodeRegistry, PipelineSerializer
+from tests.unit.adapters.conftest import _info
 
-
-def _info(path, inputs=("frame_id",), outputs=("mask",)):
-    def port(name):
-        return {"name": name, "dtype": "float32", "shape": "any", "optional": False}
-
-    return {
-        "class_name": path.rsplit(".", 1)[-1],
-        "full_path": path,
-        "source": "plugin",
-        "plugin_name": "p",
-        "input_specs": [port(n) for n in inputs],
-        "output_specs": [port(n) for n in outputs],
-        "category": 0,
-        "tags": [],
-        "icon_svg": b"",
-    }
-
-
-@pytest.fixture
-def graph(qapp):
-    graph = NodeGraph()
-    yield graph
-    graph.clear_session()
+# One input and one output, so the class line has ports below it
+PORTS = {"inputs": ("frame_id",), "outputs": ("mask",)}
 
 
 def _load_one(graph, name, class_path, infos=()):
@@ -57,7 +35,7 @@ def _bottom(item):
 
 def test_a_loaded_node_shows_its_name_over_its_class(graph):
     path = "p.TrackingResultsReader"
-    node = _load_one(graph, "gt_reader", path, [_info(path)])
+    node = _load_one(graph, "gt_reader", path, [_info(path, **PORTS)])
     view = node.view
 
     assert view.text_item.toPlainText() == "gt_reader"
@@ -70,7 +48,7 @@ def test_a_loaded_node_shows_its_name_over_its_class(graph):
 
 def test_the_class_line_is_smaller_than_the_name(graph):
     path = "p.TrackingResultsReader"
-    view = _load_one(graph, "gt_reader", path, [_info(path)]).view
+    view = _load_one(graph, "gt_reader", path, [_info(path, **PORTS)]).view
 
     assert view.class_item.font().pointSizeF() < view.text_item.font().pointSizeF()
 
@@ -91,7 +69,7 @@ def test_a_placeholder_shows_the_class_from_its_path(graph):
 
 def test_renaming_a_node_keeps_its_class_line(graph):
     path = "p.Src"
-    node = _load_one(graph, "a", path, [_info(path)])
+    node = _load_one(graph, "a", path, [_info(path, **PORTS)])
 
     node.set_name("source")
 
@@ -101,7 +79,7 @@ def test_renaming_a_node_keeps_its_class_line(graph):
 
 def test_the_vertical_layout_hides_the_class_line_until_horizontal_again(graph):
     path = "p.Src"
-    view = _load_one(graph, "a", path, [_info(path)]).view
+    view = _load_one(graph, "a", path, [_info(path, **PORTS)]).view
     horizontal = (view.class_item.pos().y(), [port.pos().y() for port in view.inputs])
 
     view.layout_direction = LayoutDirectionEnum.VERTICAL.value
@@ -114,7 +92,7 @@ def test_the_vertical_layout_hides_the_class_line_until_horizontal_again(graph):
 
 def test_zoomed_out_proxy_mode_hides_the_class_line(graph):
     path = "p.Src"
-    view = _load_one(graph, "a", path, [_info(path)]).view
+    view = _load_one(graph, "a", path, [_info(path, **PORTS)]).view
 
     view.set_proxy_mode(True)
     assert not view.class_item.isVisible()
