@@ -819,7 +819,9 @@ class MainWindow(QMainWindow):
             self._status_bar.showMessage(f"Connected to {host}:{port}", 3000)
             logger.info(f"Reconnected to {host}:{port}, session: {self._session_id}")
             return
-        if connected.status is TaskStatus.CANCELLED and not old_closed:
+        # A client whose local server was stopped above does not stay, even when
+        # the Cancel came before its CloseSession.
+        if connected.status is TaskStatus.CANCELLED and not (old_closed or stopped_client_server):
             self._status_bar.showMessage("Connecting cancelled; the old connection stays.")
             return
         self._client = None

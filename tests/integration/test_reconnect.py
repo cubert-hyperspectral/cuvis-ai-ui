@@ -315,6 +315,40 @@ def test_a_connect_cancelled_before_the_old_client_closed_keeps_it(
     mock_messagebox.warning.assert_not_called()
 
 
+@patch("cuvis_ai_ui.main_window.check_cancelled", side_effect=OperationCancelled())
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+def test_a_cancelled_switch_to_remote_drops_the_client_of_the_stopped_server(
+    mock_dialog_cls, mock_client_cls, mock_messagebox, mock_check, qtbot
+):
+    """Switching to a remote server stops this window's local server first. A
+    Cancel before the old client's CloseSession must not keep that client of the
+    stopped server marked connected; nothing is sent to the server that is gone."""
+    old = MagicMock()
+    old.host, old.port = "localhost", 50051
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+    manager = MagicMock()
+    manager.port = 50051
+    manager.is_running.return_value = True
+    window.set_server_manager(manager)
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = {"mode": "remote", "host": "remote.example", "port": 50051}
+
+    window._show_connection_dialog()
+
+    manager.stop.assert_called_once()
+    assert window.client is None
+    assert window._connection_label.text() == "Not connected"
+    assert "not connected" in window.statusBar().currentMessage()
+    old.disconnect.assert_not_called()
+    mock_client_cls.return_value.connect.assert_not_called()
+    mock_messagebox.warning.assert_not_called()
+
+
 @patch("cuvis_ai_ui.main_window.QMessageBox")
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
 @patch("cuvis_ai_ui.main_window.ConnectionDialog")
