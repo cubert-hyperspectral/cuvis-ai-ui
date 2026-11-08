@@ -200,6 +200,54 @@ def test_a_cancelled_server_wait_keeps_the_old_connection(
 
 @patch("cuvis_ai_ui.main_window.QMessageBox")
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
+def test_a_cancelled_port_switch_drops_the_client_of_the_server_it_stopped(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    """Switching to another local port stops this window's server before the
+    wait. Cancelling that wait must not keep a client of the stopped server
+    marked connected; a second cancelled attempt stays disconnected."""
+    old = MagicMock()
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+    old_manager = MagicMock()
+    old_manager.port = 50051
+    old_manager.is_running.return_value = True
+    window.set_server_manager(old_manager)
+
+    new_manager = mock_manager_cls.return_value
+    new_manager.port = 50052
+    new_manager.is_running.return_value = True
+    new_manager.wait_ready.side_effect = OperationCancelled()
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings(port=50052)
+
+    window._show_connection_dialog()
+
+    old_manager.stop.assert_called_once()
+    assert window.client is None
+    assert window._connection_label.text() == "Not connected"
+    assert "not connected" in window.statusBar().currentMessage()
+
+    # The second attempt waits for the server it left starting; nothing to drop.
+    window._show_connection_dialog()
+
+    assert window.client is None
+    assert window._connection_label.text() == "Not connected"
+    assert window.statusBar().currentMessage() == SERVER_WAIT_CANCELLED
+    assert new_manager.wait_ready.call_count == 2
+    old.disconnect.assert_not_called()
+    new_manager.stop.assert_not_called()
+    mock_client_cls.return_value.connect.assert_not_called()
+    mock_messagebox.warning.assert_not_called()
+
+
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
 @patch("cuvis_ai_ui.main_window.ConnectionDialog")
 @patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
 def test_a_connect_cancelled_after_the_old_client_closed_leaves_no_client(

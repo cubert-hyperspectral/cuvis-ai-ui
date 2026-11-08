@@ -738,6 +738,7 @@ class MainWindow(QMainWindow):
         # remote, switching to a different local port nothing listens on yet,
         # or reconnecting to a manager that is no longer answering. Otherwise
         # that process keeps running, unreachable, until the app exits.
+        stopped_own_server = False
         if self._server_manager is not None and (
             settings["mode"] == "remote"
             or self._server_manager.port != port
@@ -745,6 +746,7 @@ class MainWindow(QMainWindow):
         ):
             self._server_manager.stop()
             self._server_manager = None
+            stopped_own_server = True
 
         # Local mode means this machine. Start a server unless one already listens
         # (started outside the UI, or by an earlier run). A manager still here is
@@ -758,8 +760,18 @@ class MainWindow(QMainWindow):
                     self._server_manager.start()
                 waited = wait_for_server(self._server_manager, self)
                 if waited.status is TaskStatus.CANCELLED:
-                    # Cancel changes nothing: the old connection, if any, stays
-                    self._status_bar.showMessage(SERVER_WAIT_CANCELLED)
+                    if not stopped_own_server:
+                        # Cancel changes nothing: the old connection, if any, stays
+                        self._status_bar.showMessage(SERVER_WAIT_CANCELLED)
+                        return
+                    # The old client's server was stopped above; drop the client
+                    # without a CloseSession call to a server that is gone.
+                    self._client = None
+                    self._update_connection_status(False)
+                    self._status_bar.showMessage(
+                        f"{SERVER_WAIT_CANCELLED} The previous local server was "
+                        "stopped, so the window is not connected."
+                    )
                     return
                 if not waited.value:
                     detail = (
