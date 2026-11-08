@@ -57,9 +57,8 @@ echo.
 :: -------------------------------------------------------
 echo [2/5] Staging cuvis-ai-core source -> installer\payload\...
 
-:: Capture cuvis-ai-core version from git BEFORE we strip .git in the copy.
-:: bootstrap.ps1 surfaces this as SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CUVIS_AI_CORE
-:: so `uv sync` doesn't fail with "setuptools-scm was unable to detect version".
+:: Capture cuvis-ai-core version from git BEFORE we strip .git in the copy;
+:: it is written into the staged pyproject.toml below.
 set "CORE_VERSION="
 for /f "delims=" %%v in ('git -C "%CORE_ROOT%" describe --tags --abbrev^=0 2^>nul') do set "CORE_VERSION=%%v"
 if "%CORE_VERSION:~0,1%"=="v" set "CORE_VERSION=%CORE_VERSION:~1%"
@@ -67,9 +66,10 @@ if "%CORE_VERSION%"=="" set "CORE_VERSION=0.0.0+local"
 
 if exist "%PAYLOAD_DIR%" rmdir /s /q "%PAYLOAD_DIR%"
 mkdir "%PAYLOAD_DIR%"
+:: .git appears in /XD (a clone's folder) and /XF (a worktree's pointer file)
 robocopy "%CORE_ROOT%" "%PAYLOAD_DIR%" /E /NFL /NDL /NP /NJH /NJS ^
     /XD .venv .git build dist __pycache__ .ruff_cache .mypy_cache .pytest_cache htmlcov ^
-    /XF *.pyc *.pyo
+    /XF *.pyc *.pyo .git
 :: robocopy: 0=no copy, 1=copied, 2=extra, 4=mismatched, 8+=error
 if errorlevel 8 (
     echo ERROR: robocopy failed staging cuvis-ai-core source.
@@ -78,8 +78,14 @@ if errorlevel 8 (
 :: Don't let robocopy's success exit codes (1-7) trip subsequent error checks
 set "errorlevel=0"
 
-:: Persist the version so bootstrap.ps1 can pass it to setuptools-scm
-echo %CORE_VERSION%> "%PAYLOAD_DIR%\.cuvis_ai_core_version"
+:: The staged source has no .git, so setuptools-scm needs the version in
+:: pyproject.toml (fallback_version): for bootstrap's install and for every
+:: environment the installed server later builds from this source.
+uv run python "%INSTALLER_DIR%\stamp_core_version.py" "%PAYLOAD_DIR%" "%CORE_VERSION%"
+if errorlevel 1 (
+    echo ERROR: Failed to write the cuvis-ai-core version into the staged source.
+    exit /b 1
+)
 echo       Staged at %PAYLOAD_DIR% (version: %CORE_VERSION%)
 echo.
 
