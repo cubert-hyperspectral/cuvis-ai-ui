@@ -34,9 +34,16 @@ def _open_log() -> tuple[Path, "object"]:
     return log_path, fh
 
 
-_LOG_PATH, _LOG_FH = _open_log()
-sys.stdout = _LOG_FH
-sys.stderr = _LOG_FH
+# Set by _redirect_output() when main() starts; the tray callbacks read it.
+_LOG_PATH: Path | None = None
+
+
+def _redirect_output() -> None:
+    """Send stdout and stderr to server.log, from main() so importing has no effect."""
+    global _LOG_PATH
+    _LOG_PATH, log_file = _open_log()
+    sys.stdout = log_file
+    sys.stderr = log_file
 
 
 # --- 2. Run the gRPC server on a daemon thread -----------------------------
@@ -97,6 +104,7 @@ def _make_icon():
 
 
 def main() -> None:
+    _redirect_output()
     threading.Thread(target=_run_server, name="grpc-serve", daemon=True).start()
 
     # Give the server a moment to bind so a port-collision crash surfaces
