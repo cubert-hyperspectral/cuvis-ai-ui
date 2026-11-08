@@ -806,7 +806,8 @@ class MainWindow(QMainWindow):
             check_cancelled(stop)
             if old_client is not None:
                 try:
-                    old_client.disconnect()
+                    # A server stopped above has no session left to close
+                    old_client.disconnect(close_session=not stopped_client_server)
                 except Exception:
                     pass
             old_closed = True

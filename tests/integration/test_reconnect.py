@@ -103,6 +103,47 @@ def test_reconnect_shows_the_manager_error_when_the_server_is_not_ready(
     assert "the server process exited" in warning_call.args[2]
 
 
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ServerManager")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
+def test_a_port_switch_whose_new_server_is_not_ready_still_reconnects(
+    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, mock_messagebox, qtbot
+):
+    """The switch stops this window's own server and the new one does not
+    become ready: the warning names the server's error, then the reconnect runs
+    anyway. The old client's server is gone, so its channel is closed without a
+    CloseSession call to it."""
+    old = _connected_client()
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+    old_manager = MagicMock()
+    old_manager.port = 50051
+    old_manager.is_running.return_value = True
+    window.set_server_manager(old_manager)
+
+    new_manager = mock_manager_cls.return_value
+    new_manager.port = 50052
+    new_manager.wait_ready.return_value = False
+    new_manager.last_error = "the server process exited"
+    mock_client_cls.return_value.connect.side_effect = ConnectionError("handshake refused")
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings(port=50052)
+
+    window._show_connection_dialog()
+
+    old_manager.stop.assert_called_once()
+    warnings = [c.args for c in mock_messagebox.warning.call_args_list]
+    assert [w[1] for w in warnings] == ["Server Start Warning", "Connection Failed"]
+    assert "the server process exited" in warnings[0][2]
+    assert "handshake refused" in warnings[1][2]
+    _assert_dropped_without_close_session(old)
+    assert window.client is None
+
+
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
 @patch("cuvis_ai_ui.main_window.ServerManager")
 @patch("cuvis_ai_ui.main_window.ConnectionDialog")
@@ -406,7 +447,8 @@ def test_a_port_switch_that_stopped_the_old_server_ends_like_any_reconnect(
     window._show_connection_dialog()
 
     manager.stop.assert_called_once()
-    old.disconnect.assert_called_once()
+    # Its server was stopped: the old client sends no CloseSession to it
+    old.disconnect.assert_called_once_with(close_session=False)
     if outcome == "connected":
         assert window.client is new
         assert window._connection_label.text() == "Connected"
