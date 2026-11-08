@@ -750,9 +750,10 @@ class MainWindow(QMainWindow):
             # A cancelled local start can leave this manager beside a client of
             # another server (a remote one, say); only its own client goes with it.
             client = self._client
+            # A remote-mode host is typed by the user: any case, IPv6 in brackets
             stopped_client_server = (
                 client is not None
-                and client.host in _LOOPBACK_HOSTS
+                and client.host.strip("[]").lower() in _LOOPBACK_HOSTS
                 and client.port == self._server_manager.port
             )
             self._server_manager.stop()

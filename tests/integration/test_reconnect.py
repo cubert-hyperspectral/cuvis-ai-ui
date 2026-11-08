@@ -215,19 +215,27 @@ def test_a_cancelled_server_wait_keeps_the_old_connection(
     assert window.statusBar().currentMessage() == SERVER_WAIT_CANCELLED
 
 
+@pytest.mark.parametrize("host", ["localhost", "LocalHost", "127.0.0.1", "[::1]"])
 @patch("cuvis_ai_ui.main_window.QMessageBox")
 @patch("cuvis_ai_ui.main_window.CuvisAIClient")
 @patch("cuvis_ai_ui.main_window.ServerManager")
 @patch("cuvis_ai_ui.main_window.ConnectionDialog")
 @patch("cuvis_ai_ui.main_window.is_listening", return_value=False)
 def test_a_cancelled_port_switch_drops_the_client_of_the_server_it_stopped(
-    mock_is_listening, mock_dialog_cls, mock_manager_cls, mock_client_cls, mock_messagebox, qtbot
+    mock_is_listening,
+    mock_dialog_cls,
+    mock_manager_cls,
+    mock_client_cls,
+    mock_messagebox,
+    host,
+    qtbot,
 ):
     """Switching to another local port stops this window's server before the
     wait. Cancelling that wait must not keep a client of the stopped server
-    marked connected, nor its channel open; a second cancelled attempt stays
-    disconnected."""
-    old = _connected_client()
+    marked connected, nor its channel open, however its host names this
+    machine (a remote-mode host is typed by the user); a second cancelled
+    attempt stays disconnected."""
+    old = _connected_client(host=host)
     window = MainWindow(client=old)
     qtbot.addWidget(window)
     old_manager = MagicMock()
