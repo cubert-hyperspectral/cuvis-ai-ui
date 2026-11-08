@@ -67,33 +67,27 @@ class CuvisNodeItem(NodeItem):
             width = max(width, self._class_item.boundingRect().width() + _CLASS_SIDE_PADDING)
         return width, height
 
+    # NodeItem's horizontal layout passes the title band's height to these three
+    # hooks; the class line adds its own height there, so the node grows and the
+    # ports and widgets start below the class line.
+
+    def _set_base_size(self, add_w: float = 0.0, add_h: float = 0.0) -> None:
+        super()._set_base_size(add_w, add_h + self._class_line_height())
+
+    def align_ports(self, v_offset: float = 0.0) -> None:
+        super().align_ports(v_offset + self._class_line_height())
+
+    def align_widgets(self, v_offset: float = 0.0) -> None:
+        super().align_widgets(v_offset + self._class_line_height())
+
     def _draw_node_horizontal(self) -> None:
-        # Mirrors NodeItem._draw_node_horizontal (NodeGraphQt 0.6.44) with the
-        # class line added to the header height before the ports are placed.
+        super()._draw_node_horizontal()
+        # NodeItem's title band is the title's height plus 4
         title_height = self._text_item.boundingRect().height() + 4.0
-        height = title_height + self._class_line_height()
-
-        for port, text in self._input_items.items():
-            if port.isVisible():
-                text.setVisible(port.display_name)
-        for port, text in self._output_items.items():
-            if port.isVisible():
-                text.setVisible(port.display_name)
-
-        self._set_base_size(add_h=height)
-        self._set_text_color(self.text_color)
-        self._tooltip_disable(self.disabled)
-
-        self.align_label()
         rect = self.boundingRect()
         class_width = self._class_item.boundingRect().width()
         self._class_item.setPos(rect.center().x() - class_width / 2, rect.y() + title_height)
         self._class_item.setVisible(bool(self._class_item.toPlainText()) and not self._proxy_mode)
-        self.align_icon(h_offset=2.0, v_offset=1.0)
-        self.align_ports(v_offset=height)
-        self.align_widgets(v_offset=height)
-
-        self.update()
 
     def _draw_node_vertical(self) -> None:
         super()._draw_node_vertical()

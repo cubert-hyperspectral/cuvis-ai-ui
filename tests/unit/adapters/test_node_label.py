@@ -6,6 +6,7 @@ NodeGraphQt item.
 
 import pytest
 from NodeGraphQt import NodeGraph
+from NodeGraphQt.constants import LayoutDirectionEnum
 
 from cuvis_ai_ui.adapters import NodeRegistry, PipelineSerializer
 
@@ -96,6 +97,19 @@ def test_renaming_a_node_keeps_its_class_line(graph):
 
     assert node.view.text_item.toPlainText() == "source"
     assert node.view.class_item.toPlainText() == "Src"
+
+
+def test_the_vertical_layout_hides_the_class_line_until_horizontal_again(graph):
+    path = "p.Src"
+    view = _load_one(graph, "a", path, [_info(path)]).view
+    horizontal = (view.class_item.pos().y(), [port.pos().y() for port in view.inputs])
+
+    view.layout_direction = LayoutDirectionEnum.VERTICAL.value
+    assert not view.class_item.isVisible()
+
+    view.layout_direction = LayoutDirectionEnum.HORIZONTAL.value
+    assert view.class_item.isVisible()
+    assert (view.class_item.pos().y(), [port.pos().y() for port in view.inputs]) == horizontal
 
 
 def test_zoomed_out_proxy_mode_hides_the_class_line(graph):
