@@ -226,6 +226,8 @@ class ServerManager:
             finally:
                 channel.close()
 
+        # A Cancel during the last poll, which can run past the deadline, is a cancel
+        check_cancelled(stop)
         logger.warning(f"Server did not become ready within {timeout:.0f}s")
         self._last_error = (
             f"Timeout after {timeout}s waiting for server at {target}. Server log: {self._log_path}"

@@ -423,6 +423,38 @@ def test_wait_ready_stops_at_the_next_poll_once_the_event_is_set(mock_channel, m
     assert manager.last_error == ""
 
 
+@patch("cuvis_ai_ui.server.manager.grpc.channel_ready_future")
+@patch("cuvis_ai_ui.server.manager.grpc.insecure_channel")
+@patch("cuvis_ai_ui.server.manager.time.monotonic")
+def test_a_cancel_during_the_last_poll_is_a_cancel_not_a_timeout(
+    mock_monotonic, mock_channel, mock_ready_future
+):
+    """The last poll can run past the deadline while the user presses Cancel;
+    that still ends as a cancel, so the caller does not act on a timeout."""
+    import threading
+
+    import grpc
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+    mock_monotonic.side_effect = [0, 0, 100]
+    mock_ch = Mock()
+    mock_channel.return_value = mock_ch
+
+    def cancelled_while_waiting(timeout):
+        stop.set()
+        raise grpc.FutureTimeoutError()
+
+    mock_ready_future.return_value.result.side_effect = cancelled_while_waiting
+    manager = _running_manager()
+
+    with pytest.raises(OperationCancelled):
+        manager.wait_ready(timeout=5.0, stop=stop)
+    mock_ch.close.assert_called_once()
+    assert manager.last_error == ""
+
+
 @patch("cuvis_ai_ui.server.manager.time.sleep")
 @patch("cuvis_ai_ui.server.manager.grpc.channel_ready_future")
 @patch("cuvis_ai_ui.server.manager.grpc.insecure_channel")
