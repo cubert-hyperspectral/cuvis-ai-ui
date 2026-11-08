@@ -1,5 +1,6 @@
 """Unit tests for ConnectionDialog widget."""
 
+import grpc
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -297,15 +298,22 @@ def test_test_connection_success(mock_grpc, qapp):
     assert dialog._test_status.text() == "Connected"
     assert "green" in dialog._test_status.styleSheet()
     assert dialog._test_btn.isEnabled() is True
+    mock_channel.close.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    "error",
+    [grpc.FutureTimeoutError(), RuntimeError("connection refused")],
+    ids=["timeout", "other-error"],
+)
 @patch("cuvis_ai_ui.widgets.connection_dialog.grpc")
-def test_test_connection_failure(mock_grpc, qapp):
-    """Test _test_connection when server is unreachable."""
+def test_test_connection_failure(mock_grpc, qapp, error):
+    """A failed test reports Failed and still closes its channel."""
     mock_future = MagicMock()
-    mock_future.result.side_effect = Exception("timeout")
+    mock_future.result.side_effect = error
     mock_grpc.channel_ready_future.return_value = mock_future
-    mock_grpc.insecure_channel.return_value = MagicMock()
+    mock_channel = MagicMock()
+    mock_grpc.insecure_channel.return_value = mock_channel
 
     dialog = ConnectionDialog()
     dialog._test_connection()
@@ -313,6 +321,20 @@ def test_test_connection_failure(mock_grpc, qapp):
     assert dialog._test_status.text() == "Failed"
     assert "red" in dialog._test_status.styleSheet()
     assert dialog._test_btn.isEnabled() is True
+    mock_channel.close.assert_called_once()
+
+
+@patch("cuvis_ai_ui.widgets.connection_dialog.grpc")
+def test_test_connection_channel_creation_error(mock_grpc, qapp):
+    """An error while creating the channel reports Failed without a close call."""
+    mock_grpc.insecure_channel.side_effect = ValueError("bad target")
+
+    dialog = ConnectionDialog()
+    dialog._test_connection()
+
+    assert dialog._test_status.text() == "Failed"
+    assert dialog._test_btn.isEnabled() is True
+    mock_grpc.channel_ready_future.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

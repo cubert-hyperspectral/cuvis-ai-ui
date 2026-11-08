@@ -173,10 +173,10 @@ class ConnectionDialog(QDialog):
 
         QApplication.processEvents()
 
+        channel = None
         try:
             channel = grpc.insecure_channel(target)
             grpc.channel_ready_future(channel).result(timeout=5)
-            channel.close()
             self._test_status.setText("Connected")
             self._test_status.setStyleSheet("color: green;")
         except Exception as exc:
@@ -184,6 +184,8 @@ class ConnectionDialog(QDialog):
             self._test_status.setText("Failed")
             self._test_status.setStyleSheet("color: red;")
         finally:
+            if channel is not None:
+                channel.close()
             self._test_btn.setEnabled(True)
 
     def _on_accept(self) -> None:

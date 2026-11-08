@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The Test button in Tools > Connect to Server closes its gRPC channel when the test fails too, not only when it connects.
+
 ## 0.5.1 - 2026-11-08
 
 - Nodes on the canvas show their class on a second, smaller line under the node name.
