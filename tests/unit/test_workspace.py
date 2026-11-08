@@ -172,6 +172,24 @@ class TestRegisterPlugins:
         client.load_plugins.assert_not_called()
         client.list_available_nodes.assert_not_called()
 
+    def test_a_cancel_after_a_refused_close_still_opens_a_new_session(self, client):
+        """A server can answer CloseSession with success=False; the client drops its
+        session id anyway, so a Cancel during that close must not leave the client
+        without any session."""
+        stop = threading.Event()
+
+        def refused():
+            stop.set()
+            client.session_id = None
+            return False
+
+        client.close_session.side_effect = refused
+        with pytest.raises(OperationCancelled):
+            register_plugins(client, [_entry("a")], fresh_session=True, stop=stop)
+        assert client.close_session.call_count == 1
+        client.create_session.assert_called_once()
+        client.list_available_nodes.assert_not_called()
+
     def test_a_cancel_after_the_old_session_closed_still_opens_the_new_one(self, client):
         """With the old session closed, the new one is opened anyway so the client
         is never left without a session; the cancel stops before the node list."""

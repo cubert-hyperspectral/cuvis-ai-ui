@@ -123,15 +123,16 @@ def _replace_session(client: CuvisAIClient, stop: threading.Event | None = None)
     A close that fails is tried once more; if it still fails the new session
     is opened anyway and the old one is named in the log, since it stays open
     on the server. A set ``stop`` event ends the swap after a failed close,
-    while the client still holds its old session; once the old session is
-    closed the new one is always opened, so the client never ends up without.
+    while the client still holds its old session. Once the client lets go of
+    the old session (closed, or refused by the server, which also drops the
+    client's id) the new one is always opened, so the client never ends up
+    without one.
     """
     old_session = client.session_id
-    closed = client.close_session()
-    if not closed:
+    for _attempt in range(2):
+        if client.close_session() or client.session_id is None:
+            break
         check_cancelled(stop)
-        closed = client.close_session()
-    if not closed:
-        check_cancelled(stop)
+    else:
         logger.warning(f"Could not close server session {old_session}; it stays open")
     client.create_session()
