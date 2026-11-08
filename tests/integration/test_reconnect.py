@@ -3,6 +3,8 @@
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from cuvis_ai_ui.grpc.client import OperationCancelled
 from cuvis_ai_ui.main_window import MainWindow
 from cuvis_ai_ui.widgets.blocking_task import SERVER_WAIT_CANCELLED
@@ -347,6 +349,53 @@ def test_a_cancelled_switch_to_remote_drops_the_client_of_the_stopped_server(
     old.disconnect.assert_not_called()
     mock_client_cls.return_value.connect.assert_not_called()
     mock_messagebox.warning.assert_not_called()
+
+
+@pytest.mark.parametrize("outcome", ["connected", "failed", "cancelled"])
+@patch("cuvis_ai_ui.main_window.QMessageBox")
+@patch("cuvis_ai_ui.main_window.CuvisAIClient")
+@patch("cuvis_ai_ui.main_window.ConnectionDialog")
+@patch("cuvis_ai_ui.main_window.is_listening", return_value=True)
+def test_a_port_switch_that_stopped_the_old_server_ends_like_any_reconnect(
+    mock_is_listening, mock_dialog_cls, mock_client_cls, mock_messagebox, outcome, qtbot
+):
+    """Once past the first checkpoint, a switch that stopped the old client's
+    server ends as every reconnect does: the new client, or no client with the
+    error box or the cancel note."""
+    old = MagicMock()
+    old.host, old.port = "localhost", 50051
+    window = MainWindow(client=old)
+    qtbot.addWidget(window)
+    manager = MagicMock()
+    manager.port = 50051
+    manager.is_running.return_value = True
+    window.set_server_manager(manager)
+    new = mock_client_cls.return_value
+    if outcome == "failed":
+        new.connect.side_effect = ConnectionError("handshake refused")
+    elif outcome == "cancelled":
+        new.connect.side_effect = OperationCancelled()
+
+    dialog = mock_dialog_cls.return_value
+    dialog.exec.return_value = True
+    dialog.get_settings.return_value = _local_settings(port=50052)
+
+    window._show_connection_dialog()
+
+    manager.stop.assert_called_once()
+    old.disconnect.assert_called_once()
+    if outcome == "connected":
+        assert window.client is new
+        assert window._connection_label.text() == "Connected"
+        mock_messagebox.warning.assert_not_called()
+    else:
+        assert window.client is None
+        assert window._connection_label.text() == "Not connected"
+    if outcome == "failed":
+        assert "handshake refused" in mock_messagebox.warning.call_args.args[2]
+    if outcome == "cancelled":
+        assert "not connected" in window.statusBar().currentMessage()
+        mock_messagebox.warning.assert_not_called()
 
 
 @patch("cuvis_ai_ui.main_window.QMessageBox")

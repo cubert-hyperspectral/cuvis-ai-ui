@@ -2,13 +2,16 @@
 
 import json
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock, call
 
+import grpc
 import pytest
 
-from cuvis_ai_ui.grpc.client import OperationCancelled
+from cuvis_ai_ui.grpc.client import CuvisAIClient, OperationCancelled
 from cuvis_ai_ui.workspace import (
     PluginRegistration,
+    _replace_session,
     list_pipelines,
     plugin_dirs_for,
     register_plugins,
@@ -253,6 +256,54 @@ class TestRegisterPlugins:
             register_plugins(client, [_entry("a")], stop=stop)
         client.list_available_nodes.assert_not_called()
         assert not sent["path"].exists()
+
+
+class _Unavailable(grpc.RpcError):
+    def details(self):
+        return "unavailable"
+
+
+class _SessionStub:
+    """A gRPC stub whose CloseSession answers from a script: ok, refused or error."""
+
+    def __init__(self, closes):
+        self.closes = list(closes)
+        self.close_calls = 0
+
+    def CloseSession(self, request, timeout):  # noqa: N802
+        self.close_calls += 1
+        outcome = self.closes.pop(0)
+        if outcome == "error":
+            raise _Unavailable()
+        return SimpleNamespace(success=outcome == "ok")
+
+    def CreateSession(self, request, timeout):  # noqa: N802
+        return SimpleNamespace(session_id="new")
+
+
+@pytest.mark.parametrize(
+    ("session", "closes", "close_calls"),
+    [
+        ("old", ["ok"], 1),
+        ("old", ["refused"], 1),
+        ("old", ["error", "ok"], 2),
+        ("old", ["error", "error"], 2),
+        (None, [], 0),
+    ],
+)
+def test_the_session_swap_on_a_real_client(session, closes, close_calls):
+    """Against the real CuvisAIClient.close_session: a refused close drops the
+    session id and needs no retry, an RPC error keeps it and is retried once, a
+    client without a session sends no CloseSession; each ends on a new session."""
+    client = CuvisAIClient()
+    client._connected = True
+    client.stub = _SessionStub(closes)
+    client.session_id = session
+
+    _replace_session(client)
+
+    assert client.stub.close_calls == close_calls
+    assert client.session_id == "new"
 
 
 class TestPluginRegistrationStatus:
