@@ -65,18 +65,8 @@ def test_connect_success(mock_stub_class, mock_channel, mock_grpc_stub):
 @patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_connect_failure_raises_connection_error(mock_stub_class, mock_channel):
     """Test connection failure raises ConnectionError after retries."""
-    import grpc
-
-    # Create a proper exception subclass with code()/details() methods
-    class _MockRpcError(grpc.RpcError):
-        def code(self):
-            return grpc.StatusCode.UNAVAILABLE
-
-        def details(self):
-            return "Connection refused"
-
     mock_stub = Mock()
-    mock_stub.CreateSession.side_effect = _MockRpcError()
+    mock_stub.CreateSession.side_effect = _rpc_error()
     mock_stub_class.return_value = mock_stub
     mock_channel.return_value = Mock()
 
