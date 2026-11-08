@@ -531,6 +531,11 @@ class NodeRegistry:
         """
         from loguru import logger
 
+        # Stale node types leave the graph in two places. Here: types whose class
+        # is gone from the registry (a plugin dropped by a folder switch or the
+        # Plugin Manager), which the loop below never visits. In that loop,
+        # _drop_stale_node_type: a type still registered whose class was replaced
+        # under the same type name (same plugin, changed ports).
         current = {node_class.type_ for node_class in self._node_classes.values()}
         stale = self._graph_types - current
         for node_type in stale:

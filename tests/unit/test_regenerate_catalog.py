@@ -48,6 +48,24 @@ def test_mirror_copies_released_manifests_and_drops_the_rest(tmp_path, monkeypat
     assert "1 released plugin manifest mirrored from cuvis-ai `v1`" in readme
 
 
+def test_the_readme_counts_several_manifests_in_the_plural(tmp_path, monkeypatch):
+    capabilities = b"capabilities:\n  - class_name: pkg.node.Node\n"
+    blobs = {
+        f"{name}.yaml": f"name: {name}\nrepo: https://example.com/{name}.git\ntag: v1\n".encode()
+        + capabilities
+        for name in ("a", "b")
+    }
+    monkeypatch.setattr(regenerate_catalog, "list_manifests", lambda repo, tag, d: sorted(blobs))
+    monkeypatch.setattr(
+        regenerate_catalog, "_git", lambda repo, *args: blobs[args[-1].rsplit("/", 1)[-1]]
+    )
+
+    regenerate_catalog.mirror(tmp_path, "v2", "plugins", tmp_path / "catalog")
+
+    readme = (tmp_path / "catalog" / "README.md").read_text(encoding="utf-8")
+    assert "2 released plugin manifests mirrored from cuvis-ai `v2`" in readme
+
+
 def test_git_failure_is_reported_as_a_click_error(monkeypatch):
     def fake_run(*args, **kwargs):
         raise subprocess.CalledProcessError(128, args[0], stderr=b"fatal: Not a valid object name")
