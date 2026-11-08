@@ -112,6 +112,48 @@ def test_connect_stops_before_the_next_attempt(mock_stub_class, mock_channel, mo
     mock_sleep.assert_not_called()
 
 
+@patch("cuvis_ai_ui.grpc.client.time.sleep")
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
+def test_every_failed_connect_attempt_closes_its_channel(mock_stub_class, mock_channel, mock_sleep):
+    """Each attempt opens a channel; one that fails closes it, so neither the
+    retries nor the final error leave channels open."""
+    channels = [Mock(), Mock()]
+    mock_channel.side_effect = channels
+    mock_stub_class.return_value.CreateSession.side_effect = _rpc_error()
+
+    with pytest.raises(ConnectionError):
+        CuvisAIClient(max_retries=2).connect()
+
+    for channel in channels:
+        channel.close.assert_called_once()
+
+
+@patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
+@patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
+def test_a_connect_cancelled_during_the_backoff_leaves_no_channel_open(
+    mock_stub_class, mock_channel
+):
+    import threading
+
+    from cuvis_ai_ui.grpc.client import OperationCancelled
+
+    stop = threading.Event()
+
+    def refused(*args, **kwargs):
+        stop.set()
+        raise _rpc_error()
+
+    mock_stub_class.return_value.CreateSession.side_effect = refused
+    client = CuvisAIClient(max_retries=3)
+
+    with pytest.raises(OperationCancelled):
+        client.connect(stop=stop)
+
+    mock_channel.return_value.close.assert_called_once()
+    assert client.channel is None
+
+
 @patch("cuvis_ai_ui.grpc.client.grpc.insecure_channel")
 @patch("cuvis_ai_ui.grpc.client.cuvis_ai_pb2_grpc.CuvisAIServiceStub")
 def test_connect_backoff_ends_as_soon_as_the_event_is_set(mock_stub_class, mock_channel):

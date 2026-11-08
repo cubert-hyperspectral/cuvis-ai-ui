@@ -199,6 +199,12 @@ class CuvisAIClient:
                 logger.warning(
                     f"Connection attempt {attempt}/{self.max_retries} failed: {e.code()}"
                 )
+                # Close this attempt's channel, so a retry, a cancel or the
+                # final error leaves none open
+                if self.channel is not None:
+                    self.channel.close()
+                self.channel = None
+                self.stub = None
 
                 if attempt < self.max_retries:
                     # Exponential backoff: 1s, 2s, 4s
