@@ -456,6 +456,7 @@ class PipelineSerializer:
                 self._cuvis_class_path = class_path
                 self._cuvis_class_name = class_name
                 self.set_name(class_name)
+                self.view.set_class_label(class_name)
                 self.set_color(200, 50, 50)  # Red for unknown
                 for name in sorted(in_ports):
                     spec = _inferred_port_spec(is_input=True)

@@ -14,6 +14,7 @@ from cuvis_ai_schemas.extensions.ui.node_display import CATEGORY_STYLES, TAG_STY
 from cuvis_ai_schemas.grpc.conversions import proto_to_node_category, proto_to_node_tag
 from cuvis_ai_schemas.pipeline.ports import PortSpec
 
+from .node_item import CuvisNodeItem
 from .port_helpers import create_input_port, create_output_port
 
 
@@ -145,7 +146,7 @@ class CuvisNodeAdapter(BaseNode):
 
     def __init__(self) -> None:
         """Initialize the node adapter."""
-        super().__init__()
+        super().__init__(qgraphics_item=CuvisNodeItem)
 
         # cuvis-ai specific attributes
         self._cuvis_class_path: str = ""
@@ -255,8 +256,10 @@ class CuvisNodeAdapter(BaseNode):
         self._cuvis_tags = list(node_info.get("tags", []))
         self._cuvis_icon_svg = node_info.get("icon_svg", b"")
 
-        # Set node display name
+        # Display name until the pipeline names the node; the class stays on
+        # the canvas as the node's second label line
         self.set_name(self._cuvis_class_name)
+        self.view.set_class_label(self._cuvis_class_name)
 
         # Colour from schemas CATEGORY_STYLES; only RGB accepted by NodeGraphQt
         r, g, b, _ = category_color(self._cuvis_category)
