@@ -72,6 +72,29 @@ def test_keeps_windows_line_endings(stamp_module, tmp_path):
     assert b"\n" not in raw.replace(b"\r\n", b"")
 
 
+def test_a_table_header_with_a_comment_is_found(stamp_module, tmp_path):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        CORE_PYPROJECT.replace(
+            "[tool.setuptools_scm]\n", "[ tool.setuptools_scm ]  # versioning\n"
+        ),
+        encoding="utf-8",
+    )
+
+    stamp_module.stamp(pyproject, "0.20.2")
+
+    assert _scm(pyproject)["fallback_version"] == "0.20.2"
+
+
+def test_an_empty_table_at_the_end_without_a_newline_is_stamped(stamp_module, tmp_path):
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "x"\n\n[tool.setuptools_scm]', encoding="utf-8")
+
+    stamp_module.stamp(pyproject, "0.20.2")
+
+    assert _scm(pyproject) == {"fallback_version": "0.20.2"}
+
+
 def test_a_source_without_the_table_fails_and_stays_untouched(stamp_module, tmp_path):
     pyproject = tmp_path / "pyproject.toml"
     original = CORE_PYPROJECT.replace("[tool.setuptools_scm]\n", "[tool.other]\n")

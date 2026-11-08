@@ -20,6 +20,8 @@ from pathlib import Path
 import click
 
 TABLE = "[tool.setuptools_scm]"
+# The table header as TOML allows it: spaces around the keys, a trailing comment
+_HEADER = re.compile(r"\s*\[\s*tool\s*\.\s*setuptools_scm\s*\]\s*(#.*)?")
 _FALLBACK = re.compile(r"\s*fallback_version\s*=")
 
 
@@ -35,9 +37,13 @@ def stamp(pyproject: Path, version: str) -> None:
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines(keepends=True)
 
-    start = next((i for i, line in enumerate(lines) if line.strip() == TABLE), None)
+    start = next(
+        (i for i, line in enumerate(lines) if _HEADER.fullmatch(line.rstrip("\r\n"))), None
+    )
     if start is None:
         raise ValueError(f"{pyproject} has no {TABLE} table")
+    if not lines[start].endswith("\n"):
+        lines[start] += newline
     end = next(
         (i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")),
         len(lines),
