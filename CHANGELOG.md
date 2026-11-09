@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.2 - 2026-11-09
 
 - The Test button in Tools > Connect to Server closes its gRPC channel when the test fails too, not only when it connects.
 
