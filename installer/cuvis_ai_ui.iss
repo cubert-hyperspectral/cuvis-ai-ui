@@ -125,10 +125,15 @@ begin
   end;
 end;
 
-{ CUVIS is set and its folder holds the SDK library. }
+{ CUVIS is set and its folder holds the SDK library. A value with %VARIABLES% (REG_EXPAND_SZ) counts
+  as present: this 32-bit setup would expand %ProgramFiles% to the x86 folder, not the one 64-bit
+  processes get. }
 function SdkLibraryPresent: Boolean;
+var
+  Folder: String;
 begin
-  Result := (MachineCuvis <> '') and FileExists(AddBackslash(MachineCuvis) + 'cuvis.dll');
+  Folder := MachineCuvis;
+  Result := (Folder <> '') and ((Pos('%', Folder) > 0) or FileExists(AddBackslash(Folder) + 'cuvis.dll'));
 end;
 
 { No SDK, one whose library is gone from the CUVIS folder, or one older than the pin. A present SDK

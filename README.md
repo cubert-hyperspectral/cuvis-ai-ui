@@ -128,7 +128,7 @@ The local server reads `.cu3s` / `.cu3` cubes through the cuvis-ai-dataloader pl
 
 - Silent installs (`/VERYSILENT`) with the server option install the SDK too; add `/MERGETASKS="!installserver\cuvissdk"` to skip it.
 - `/FORCESDK` offers the SDK even when the machine has the pinned version (repair).
-- A UI started before the SDK was installed still gives the server it starts the machine's `CUVIS`.
+- A UI started before the SDK was installed still gives the server it starts the machine's `CUVIS`. So does a UI whose own `CUVIS` folder has no `cuvis.dll`, when the machine's folder has one.
 
 `installer\cuvis_sdk.iss` pins the release: version, asset, URL, SHA-256 and size. Keep the version in the `cuvis-il` range of the cuvis-ai-dataloader tag that `cuvis_ai_ui\catalog\cuvis_ai_dataloader.yaml` pins, and move it with:
 

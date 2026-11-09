@@ -128,16 +128,53 @@ def test_server_gets_cuvis_from_the_machine_environment(machine_cuvis):
     assert _server_env(50051)["CUVIS"] == r"C:\Program Files\Cuvis\bin"
 
 
-def test_cuvis_already_in_the_environment_wins(machine_cuvis, monkeypatch):
-    machine_cuvis["CUVIS"] = r"C:\Program Files\Cuvis\bin"
-    monkeypatch.setenv("CUVIS", r"D:\dev\cuvis\bin")
+@pytest.fixture
+def sdk_folder(tmp_path):
+    """Make a CUVIS folder, with or without the SDK library in it."""
+
+    def make(name: str, library: bool) -> str:
+        folder = tmp_path / name
+        folder.mkdir()
+        if library:
+            (folder / "cuvis.dll").write_bytes(b"")
+        return str(folder)
+
+    return make
+
+
+def test_cuvis_already_in_the_environment_wins(machine_cuvis, monkeypatch, sdk_folder):
+    machine = machine_cuvis["CUVIS"] = sdk_folder("machine", library=True)
+    current = sdk_folder("dev", library=True)
+    monkeypatch.setenv("CUVIS", current)
     warn = Mock()
     monkeypatch.setattr(manager_module.logger, "warning", warn)
 
-    assert _server_env(50051)["CUVIS"] == r"D:\dev\cuvis\bin"
+    assert _server_env(50051)["CUVIS"] == current
     warn.assert_called_once()
-    assert r"D:\dev\cuvis\bin" in warn.call_args.args[0]
-    assert r"C:\Program Files\Cuvis\bin" in warn.call_args.args[0]
+    assert current in warn.call_args.args[0]
+    assert machine in warn.call_args.args[0]
+
+
+def test_inherited_cuvis_without_the_library_gives_way(machine_cuvis, monkeypatch, sdk_folder):
+    machine = machine_cuvis["CUVIS"] = sdk_folder("machine", library=True)
+    stale = sdk_folder("stale", library=False)
+    monkeypatch.setenv("CUVIS", stale)
+    warn = Mock()
+    monkeypatch.setattr(manager_module.logger, "warning", warn)
+
+    assert _server_env(50051)["CUVIS"] == machine
+    warn.assert_called_once()
+    assert stale in warn.call_args.args[0]
+    assert "cuvis.dll" in warn.call_args.args[0]
+
+
+def test_inherited_cuvis_stays_when_neither_has_the_library(machine_cuvis, monkeypatch, sdk_folder):
+    machine_cuvis["CUVIS"] = sdk_folder("machine", library=False)
+    current = sdk_folder("dev", library=False)
+    monkeypatch.setenv("CUVIS", current)
+    monkeypatch.setattr(manager_module.logger, "warning", Mock())
+
+    assert _server_env(50051)["CUVIS"] == current
 
 
 def test_matching_cuvis_logs_nothing(machine_cuvis, monkeypatch):

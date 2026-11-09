@@ -97,19 +97,31 @@ def _machine_env_value(name: str) -> str | None:
     return str(value) or None
 
 
+def _has_sdk_library(folder: str) -> bool:
+    return (Path(folder) / "cuvis.dll").is_file()
+
+
 def _with_machine_cuvis(env: dict[str, str]) -> None:
     """Give the server the machine's ``CUVIS`` when this process has none.
 
     The cu3s data plugin loads the Cuvis SDK from ``CUVIS``, and the server
     passes its environment on to each pipeline's environment. A value already
-    set wins (a developer may point it at another SDK build).
+    set wins (a developer may point it at another SDK build), unless its folder
+    has no SDK library and the machine's folder has one.
     """
     machine = _machine_env_value("CUVIS")
     current = env.get("CUVIS")
+    if not machine or (current and os.path.normcase(current) == os.path.normcase(machine)):
+        return
     if not current:
-        if machine:
-            env["CUVIS"] = machine
-    elif machine and os.path.normcase(current) != os.path.normcase(machine):
+        env["CUVIS"] = machine
+    elif not _has_sdk_library(current) and _has_sdk_library(machine):
+        logger.warning(
+            f"CUVIS is {current} in this process, which has no cuvis.dll; "
+            f"the server uses the machine value {machine}"
+        )
+        env["CUVIS"] = machine
+    else:
         logger.warning(
             f"CUVIS is {current} in this process but {machine} in the machine environment; "
             "the server uses this process's value"
