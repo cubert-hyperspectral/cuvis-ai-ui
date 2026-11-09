@@ -142,21 +142,10 @@ def fetch_text(url: str) -> str:
         return response.read().decode("utf-8")
 
 
-class _KeepHeadOnRedirect(urllib.request.HTTPRedirectHandler):
-    """urllib turns a redirected HEAD into a GET; the asset is 200 MB."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None:
-            new.method = req.get_method()
-        return new
-
-
 def fetch_size(url: str) -> int | None:
-    """Content length of ``url`` from a HEAD request, following redirects."""
-    opener = urllib.request.build_opener(_KeepHeadOnRedirect)
+    """Content length of ``url`` from a HEAD request; urllib keeps HEAD across redirects."""
     request = urllib.request.Request(url, method="HEAD")
-    with opener.open(request, timeout=60) as response:
+    with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 (fixed https URL)
         length = response.headers.get("Content-Length")
     return int(length) if length and length.isdigit() else None
 

@@ -150,6 +150,12 @@ def test_matching_cuvis_logs_nothing(machine_cuvis, monkeypatch):
     warn.assert_not_called()
 
 
+def test_empty_cuvis_counts_as_missing(machine_cuvis, monkeypatch):
+    machine_cuvis["CUVIS"] = r"C:\Program Files\Cuvis\bin"
+    monkeypatch.setenv("CUVIS", "")
+    assert _server_env(50051)["CUVIS"] == r"C:\Program Files\Cuvis\bin"
+
+
 def test_no_machine_cuvis_leaves_it_unset(machine_cuvis):
     assert "CUVIS" not in _server_env(50051)
 

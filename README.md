@@ -98,7 +98,7 @@ A standalone Windows installer can be built that ships the UI as a frozen PyInst
 
 ### Prerequisites for building
 
-- [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+- [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 or newer
 - cuvis-ai-core checked out as a sibling at `..\..\cuvis-ai-core\cuvis-ai-core\`
 - A populated cuvis-ai-ui venv (`uv sync --extra dev`)
 

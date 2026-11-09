@@ -15,6 +15,11 @@
 ; CuvisSdkSha256, CuvisSdkSizeMB); installer\update_cuvis_sdk.py writes it.
 #include "cuvis_sdk.iss"
 
+; The SDK download page (TDownloadWizardPage.ShowBaseNameInsteadOfUrl) needs Inno Setup 6.3.
+#if Ver < EncodeVer(6, 3, 0)
+  #error Inno Setup 6.3 or newer is needed to build this installer
+#endif
+
 [Setup]
 AppId={{B7E3F2A1-9C4D-4E8B-A1F6-3D2C5E7A9B01}
 AppName={#MyAppName}
@@ -82,7 +87,6 @@ const
 
 var
   DownloadPage: TDownloadWizardPage;
-  SdkDownloadTried: Boolean;
   SdkDownloaded: Boolean;
   SdkMessageShown: Boolean;
 
@@ -121,12 +125,15 @@ begin
   end;
 end;
 
-{ No SDK, or one older than the pin. A present SDK of unknown version is left alone. }
+{ No SDK, or one older than the pin. A present SDK of unknown version, or of a newer series, is left
+  alone. }
 function SdkNeeded: Boolean;
 var
   Installed, Pin: Int64;
 begin
-  if MachineCuvis = '' then
+  if SdkNewerSeries then
+    Result := False
+  else if MachineCuvis = '' then
     Result := True
   else
     Result := KnownVersion(InstalledSdkVersion, Installed)
@@ -134,11 +141,13 @@ begin
       and (ComparePackedVersion(Installed, Pin) < 0);
 end;
 
+{ Registered at or above the pin, with its library where CUVIS points. }
 function SdkCurrent: Boolean;
 var
   Installed, Pin: Int64;
 begin
   Result := (MachineCuvis <> '')
+    and FileExists(AddBackslash(MachineCuvis) + 'cuvis.dll')
     and KnownVersion(InstalledSdkVersion, Installed)
     and StrToVersion('{#CuvisSdkVersion}', Pin)
     and (ComparePackedVersion(Installed, Pin) >= 0);
@@ -154,10 +163,11 @@ begin
       Result := True;
 end;
 
-{ /FORCESDK offers the SDK even when the machine has it (repair, testing). }
+{ /FORCESDK offers the SDK even when the machine has the pinned version (repair, testing); a newer
+  series is never replaced. }
 function SdkOffered: Boolean;
 begin
-  Result := SdkNeeded or HasSwitch('/FORCESDK');
+  Result := (SdkNeeded or HasSwitch('/FORCESDK')) and not SdkNewerSeries;
 end;
 
 procedure OfferSdkPage(const Reason: String; Icon: TMsgBoxType);
@@ -165,6 +175,10 @@ var
   ResultCode: Integer;
 begin
   SdkMessageShown := True;
+  { A silent install logs the reason and never waits on a question. }
+  Log('Cuvis SDK: ' + Reason);
+  if WizardSilent then
+    exit;
   { /SUPPRESSMSGBOXES answers No. }
   if SuppressibleMsgBox(Reason + #13#10 + #13#10 +
       'Reading .cu3s / .cu3 cubes needs the Cuvis SDK {#CuvisSdkVersion} (through the cuvis-ai-dataloader plugin); ' +
@@ -180,13 +194,13 @@ begin
   DownloadPage.ShowBaseNameInsteadOfUrl := True;
 end;
 
-{ Interactive installs download on the Ready page with a progress bar and Cancel. }
+{ Download on the Ready page (progress bar, Stop). Silent installs pass through here too. Stopping or a
+  failed download leaves the UI install going without the SDK. }
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
   if (CurPageID = wpReady) and WizardIsTaskSelected(SdkTask) then
   begin
-    SdkDownloadTried := True;
     DownloadPage.Clear;
     DownloadPage.Add('{#CuvisSdkUrl}', '{#CuvisSdkAsset}', '{#CuvisSdkSha256}');
     DownloadPage.Show;
@@ -196,7 +210,7 @@ begin
         SdkDownloaded := True;
       except
         if DownloadPage.AbortedByUser then
-          Log('Cuvis SDK download cancelled')
+          Log('Cuvis SDK download stopped')
         else
           OfferSdkPage('The Cuvis SDK could not be downloaded: ' + GetExceptionMessage + #13#10 +
             'Cuvis.AI UI installs without it.', mbError);
@@ -207,30 +221,32 @@ begin
   end;
 end;
 
-{ Silent installs skip the wizard pages, so they download here. }
-procedure DownloadSdkSilently;
-begin
-  SdkDownloadTried := True;
-  try
-    DownloadTemporaryFile('{#CuvisSdkUrl}', '{#CuvisSdkAsset}', '{#CuvisSdkSha256}', nil);
-    SdkDownloaded := True;
-  except
-    Log('Cuvis SDK download failed: ' + GetExceptionMessage);
-    OfferSdkPage('The Cuvis SDK could not be downloaded: ' + GetExceptionMessage, mbError);
-  end;
-end;
-
 { The SDK installer is NSIS: /S runs it without pages, behind the administrator prompt. Success is
-  read from the registry, since ShellExec does not promise the exit code. }
+  read from the registry and the library on disk; on a repair, where both were there before, the
+  installer's exit code must be 0 as well. }
 procedure InstallSdk;
 var
   ResultCode, Waited: Integer;
-  Started: Boolean;
+  Started, WasCurrent, Done: Boolean;
+  Installer, Sha: String;
 begin
+  WasCurrent := SdkCurrent;
+  Installer := ExpandConstant('{tmp}\{#CuvisSdkAsset}');
+  { The file waited in the user's temp folder since its download check; check it again right before
+    it runs with administrator rights, so a swapped file is never elevated. }
+  try
+    Sha := GetSHA256OfFile(Installer);
+  except
+    Sha := '';
+  end;
+  if CompareText(Sha, '{#CuvisSdkSha256}') <> 0 then
+  begin
+    OfferSdkPage('The downloaded Cuvis SDK installer no longer matches its published checksum, so it was not run.', mbError);
+    exit;
+  end;
   WizardForm.StatusLabel.Caption := 'Installing the Cuvis SDK {#CuvisSdkVersion} (administrator rights required)...';
-  Started := ShellExec('runas', ExpandConstant('{tmp}\{#CuvisSdkAsset}'), '/S', '',
-    SW_SHOW, ewWaitUntilTerminated, ResultCode);
-  Log(Format('Cuvis SDK installer: started=%d code=%d', [Ord(Started), ResultCode]));
+  Started := ShellExec('runas', Installer, '/S', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
+  Log(Format('Cuvis SDK installer: started=%d code=%d current_before=%d', [Ord(Started), ResultCode, Ord(WasCurrent)]));
   if not Started then
   begin
     if ResultCode = ErrorCancelled then
@@ -245,31 +261,29 @@ begin
     Sleep(500);
     Waited := Waited + 500;
   end;
-  if SdkCurrent then
+  Done := SdkCurrent and ((not WasCurrent) or (ResultCode = 0));
+  if Done then
     Log('Cuvis SDK ' + InstalledSdkVersion + ' installed')
   else
     OfferSdkPage(Format('The Cuvis SDK installer finished (code %d), ' +
-      'but SDK {#CuvisSdkVersion} is not registered on this machine.', [ResultCode]), mbError);
+      'but SDK {#CuvisSdkVersion} is not complete on this machine.', [ResultCode]), mbError);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   { Before the files and the server bootstrap, so the administrator prompt comes right after Install. }
-  if (CurStep = ssInstall) and WizardIsTaskSelected(SdkTask) then
-  begin
-    if not SdkDownloadTried then
-      DownloadSdkSilently;
-    if SdkDownloaded then
-      InstallSdk;
-  end;
+  if (CurStep = ssInstall) and WizardIsTaskSelected(SdkTask) and SdkDownloaded then
+    InstallSdk;
 
   if (CurStep = ssPostInstall) and not WizardSilent and not SdkMessageShown then
   begin
-    if MachineCuvis = '' then
-      OfferSdkPage('The Cuvis SDK is not installed on this machine.', mbConfirmation)
-    else if SdkNewerSeries then
+    if SdkNewerSeries then
       SuppressibleMsgBox('The Cuvis SDK ' + InstalledSdkVersion + ' on this machine is newer than the ' +
         '{#CuvisSdkVersion} series the cu3s data plugin is built for, so reading cubes may fail. ' +
-        'This installer does not replace it.', mbInformation, MB_OK, IDOK);
+        'This installer does not replace it.', mbInformation, MB_OK, IDOK)
+    else if MachineCuvis = '' then
+      OfferSdkPage('The Cuvis SDK is not installed on this machine.', mbConfirmation)
+    else if SdkNeeded then
+      OfferSdkPage('The Cuvis SDK on this machine is older than {#CuvisSdkVersion}.', mbConfirmation);
   end;
 end;

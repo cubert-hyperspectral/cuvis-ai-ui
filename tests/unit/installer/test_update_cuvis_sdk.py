@@ -1,6 +1,8 @@
 """The installer offers the Cuvis SDK release named in installer/cuvis_sdk.iss."""
 
 import re
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from click.testing import CliRunner
@@ -176,3 +178,38 @@ def test_the_shipped_manifest_is_consistent(update_module):
     assert '#include "cuvis_sdk.iss"' in (INSTALLER_DIR / "cuvis_ai_ui.iss").read_text(
         encoding="utf-8"
     )
+
+
+def test_fetch_size_keeps_head_across_a_redirect(update_module):
+    """GitHub redirects release assets; a GET there would download the whole installer."""
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def _answer(self):
+            seen.append((self.command, self.path))
+            if self.path == "/asset":
+                self.send_response(302)
+                self.send_header("Location", "/blob")
+                self.send_header("Content-Length", "0")
+            else:
+                self.send_response(200)
+                self.send_header("Content-Length", "206615384")
+            self.end_headers()
+
+        do_HEAD = _answer
+        do_GET = _answer
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        size = update_module.fetch_size(f"http://127.0.0.1:{server.server_address[1]}/asset")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert size == 206_615_384
+    assert seen == [("HEAD", "/asset"), ("HEAD", "/blob")]

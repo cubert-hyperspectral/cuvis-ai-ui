@@ -106,7 +106,7 @@ def _with_machine_cuvis(env: dict[str, str]) -> None:
     """
     machine = _machine_env_value("CUVIS")
     current = env.get("CUVIS")
-    if current is None:
+    if not current:
         if machine:
             env["CUVIS"] = machine
     elif machine and os.path.normcase(current) != os.path.normcase(machine):
