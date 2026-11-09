@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The installer can install the Cuvis SDK 3.6.1, which reading .cu3s / .cu3 cubes needs. With the local server option it offers the SDK when the machine has none or an older one, downloads it from the SDK's GitHub release, checks its SHA-256 and installs it behind the administrator prompt. `installer/cuvis_sdk.iss` pins the release; `installer/update_cuvis_sdk.py` moves the pin.
+- A server started from the UI gets the machine's `CUVIS` when the UI was started before the SDK was installed.
+
 ## 0.5.2 - 2026-11-09
 
 - The Test button in Tools > Connect to Server closes its gRPC channel when the test fails too, not only when it connects.

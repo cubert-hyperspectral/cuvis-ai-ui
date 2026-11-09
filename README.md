@@ -120,7 +120,21 @@ The Inno Setup wizard exposes a checkbox **"Install the local cuvis-ai-core gRPC
 4. `uv pip install pystray` for the tray icon.
 5. Downloads FFmpeg LGPL shared + Graphviz portable into `{app}\ffmpeg\` and `{app}\graphviz\`.
 
-Logs go to `%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\bootstrap.log`. The bootstrap is idempotent — re-running it (e.g. via the **Setup local server** Start Menu shortcut after opting out at install time) reuses the existing venv, skips already-downloaded binaries, and only does work that's missing. The Cuvis SDK is still a separate manual install — the installer prompts with the download link at the end.
+Logs go to `%LOCALAPPDATA%\Cubert GmbH\Cuvis.AI UI\bootstrap.log`. The bootstrap is idempotent — re-running it (e.g. via the **Setup local server** Start Menu shortcut after opting out at install time) reuses the existing venv, skips already-downloaded binaries, and only does work that's missing.
+
+### Cuvis SDK
+
+The local server reads `.cu3s` / `.cu3` cubes through the cuvis-ai-dataloader plugin, which needs the Cuvis SDK installed on the machine. Under the server option the wizard offers **Install the Cuvis SDK <version>** when the machine has no SDK or an older one, and ticks it. The installer then downloads the SDK's Windows installer from its [GitHub release](https://github.com/cubert-hyperspectral/cuvis.sdk/releases), checks it against the release's SHA-256 and runs it silently; Windows asks for administrator rights for that step only. If the download fails or the prompt is declined, the UI still installs and a message links to <https://sdk.cuvis.ai/>. A newer SDK series on the machine (for example 3.7 against a 3.6 pin) is left as it is, with a warning.
+
+- Silent installs (`/VERYSILENT`) with the server option install the SDK too; add `/MERGETASKS="!installserver\cuvissdk"` to skip it.
+- `/FORCESDK` offers the SDK even when the machine has the pinned version (repair).
+- A UI started before the SDK was installed still gives the server it starts the machine's `CUVIS`.
+
+`installer\cuvis_sdk.iss` pins the release: version, asset, URL, SHA-256 and size. Keep the version in the `cuvis-il` range of the cuvis-ai-dataloader tag that `cuvis_ai_ui\catalog\cuvis_ai_dataloader.yaml` pins, and move it with:
+
+```powershell
+uv run python installer\update_cuvis_sdk.py 3.6.1
+```
 
 ### Launching the installed app
 
@@ -145,7 +159,7 @@ Put the manifest in the app's `plugins/` folder (or a pipelines folder's `plugin
 | FFmpeg (shared, LGPL) | yes | `{app}\ffmpeg\bin` — torchcodec / `ToVideoNode` use it |
 | Graphviz | yes | `{app}\graphviz\bin` — `pipeline.visualize(format="png"/"svg")` uses `dot` |
 | cuvis-ai plugin catalog | yes | `cuvis_ai_ui\catalog\`: the released plugin manifests; each plugin lands in a per-pipeline cached environment when a pipeline that uses it runs |
-| **Cuvis SDK** (C++ shared lib for `.cu3s` / `.cu3` I/O) | **no, install separately** | Only needed to read cubes, through the cuvis-ai-dataloader plugin; drawing and editing pipelines works without it. The post-install dialog links to the [Cubert SDK download page](https://cloud.cubert-gmbh.de/s/qpxkyWkycrmBK9m). |
+| Cuvis SDK (C shared library for `.cu3s` / `.cu3` I/O) | downloaded at install time when ticked | Machine-wide, from its GitHub release (`installer\cuvis_sdk.iss`); see [Cuvis SDK](#cuvis-sdk). Only needed to read cubes; drawing and editing pipelines works without it. |
 
 ## Configuration
 

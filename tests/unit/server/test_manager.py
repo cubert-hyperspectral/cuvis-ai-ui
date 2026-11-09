@@ -109,6 +109,116 @@ def test_dev_run_keeps_path(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# CUVIS: a UI started before (or by) the SDK install has none in its environment
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def machine_cuvis(monkeypatch):
+    """Windows with a fake machine environment; returns the dict to fill."""
+    machine: dict[str, str] = {}
+    monkeypatch.setattr(manager_module.sys, "platform", "win32")
+    monkeypatch.setattr(manager_module, "_machine_env_value", machine.get)
+    monkeypatch.delenv("CUVIS", raising=False)
+    return machine
+
+
+def test_server_gets_cuvis_from_the_machine_environment(machine_cuvis):
+    machine_cuvis["CUVIS"] = r"C:\Program Files\Cuvis\bin"
+    assert _server_env(50051)["CUVIS"] == r"C:\Program Files\Cuvis\bin"
+
+
+def test_cuvis_already_in_the_environment_wins(machine_cuvis, monkeypatch):
+    machine_cuvis["CUVIS"] = r"C:\Program Files\Cuvis\bin"
+    monkeypatch.setenv("CUVIS", r"D:\dev\cuvis\bin")
+    warn = Mock()
+    monkeypatch.setattr(manager_module.logger, "warning", warn)
+
+    assert _server_env(50051)["CUVIS"] == r"D:\dev\cuvis\bin"
+    warn.assert_called_once()
+    assert r"D:\dev\cuvis\bin" in warn.call_args.args[0]
+    assert r"C:\Program Files\Cuvis\bin" in warn.call_args.args[0]
+
+
+def test_matching_cuvis_logs_nothing(machine_cuvis, monkeypatch):
+    machine_cuvis["CUVIS"] = r"C:\Program Files\Cuvis\bin"
+    monkeypatch.setenv("CUVIS", r"C:\Program Files\Cuvis\bin")
+    warn = Mock()
+    monkeypatch.setattr(manager_module.logger, "warning", warn)
+
+    assert _server_env(50051)["CUVIS"] == r"C:\Program Files\Cuvis\bin"
+    warn.assert_not_called()
+
+
+def test_no_machine_cuvis_leaves_it_unset(machine_cuvis):
+    assert "CUVIS" not in _server_env(50051)
+
+
+def test_other_platforms_do_not_read_the_machine_environment(monkeypatch):
+    lookup = Mock(return_value="/opt/cuvis")
+    monkeypatch.setattr(manager_module.sys, "platform", "linux")
+    monkeypatch.setattr(manager_module, "_machine_env_value", lookup)
+    monkeypatch.delenv("CUVIS", raising=False)
+
+    assert "CUVIS" not in _server_env(50051)
+    lookup.assert_not_called()
+
+
+class _FakeWinreg:
+    """The bits of winreg _machine_env_value uses."""
+
+    HKEY_LOCAL_MACHINE = "HKLM"
+    REG_SZ = 1
+    REG_EXPAND_SZ = 2
+
+    def __init__(self, values, opened=None):
+        self.values = values
+        self.opened = opened if opened is not None else []
+
+    def OpenKey(self, root, path):  # noqa: N802 (winreg's name)
+        self.opened.append((root, path))
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def QueryValueEx(self, key, name):  # noqa: N802
+        if name not in self.values:
+            raise FileNotFoundError(name)
+        return self.values[name]
+
+    @staticmethod
+    def ExpandEnvironmentStrings(value):  # noqa: N802
+        return value.replace("%ProgramFiles%", r"C:\Program Files")
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ((r"C:\Program Files\Cuvis\bin", _FakeWinreg.REG_SZ), r"C:\Program Files\Cuvis\bin"),
+        ((r"%ProgramFiles%\Cuvis\bin", _FakeWinreg.REG_EXPAND_SZ), r"C:\Program Files\Cuvis\bin"),
+    ],
+    ids=["plain", "expand"],
+)
+def test_machine_env_value_reads_the_session_manager_key(monkeypatch, stored, expected):
+    fake = _FakeWinreg({"CUVIS": stored})
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+
+    assert manager_module._machine_env_value("CUVIS") == expected
+    assert fake.opened == [
+        ("HKLM", r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")
+    ]
+
+
+def test_machine_env_value_is_none_when_missing(monkeypatch):
+    monkeypatch.setitem(sys.modules, "winreg", _FakeWinreg({}))
+    assert manager_module._machine_env_value("CUVIS") is None
+
+
+# ---------------------------------------------------------------------------
 # is_listening
 # ---------------------------------------------------------------------------
 
