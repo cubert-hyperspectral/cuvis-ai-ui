@@ -177,6 +177,25 @@ def test_inherited_cuvis_stays_when_neither_has_the_library(machine_cuvis, monke
     assert _server_env(50051)["CUVIS"] == current
 
 
+def test_unreadable_inherited_cuvis_does_not_stop_the_server(
+    machine_cuvis, monkeypatch, sdk_folder
+):
+    machine = machine_cuvis["CUVIS"] = sdk_folder("machine", library=True)
+    locked = sdk_folder("locked", library=False)
+    monkeypatch.setenv("CUVIS", locked)
+    real_stat = os.stat
+
+    def stat(path, *args, **kwargs):
+        if str(path).startswith(locked):
+            raise PermissionError(13, "Access is denied", str(path))
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat)
+    monkeypatch.setattr(manager_module.logger, "warning", Mock())
+
+    assert _server_env(50051)["CUVIS"] == machine
+
+
 def test_matching_cuvis_logs_nothing(machine_cuvis, monkeypatch):
     machine_cuvis["CUVIS"] = r"C:\Program Files\Cuvis\bin"
     monkeypatch.setenv("CUVIS", r"C:\Program Files\Cuvis\bin")

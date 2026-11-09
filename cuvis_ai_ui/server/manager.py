@@ -98,7 +98,8 @@ def _machine_env_value(name: str) -> str | None:
 
 
 def _has_sdk_library(folder: str) -> bool:
-    return (Path(folder) / "cuvis.dll").is_file()
+    # os.path.isfile answers False on any OSError (an unreadable folder too).
+    return os.path.isfile(os.path.join(folder, "cuvis.dll"))
 
 
 def _with_machine_cuvis(env: dict[str, str]) -> None:

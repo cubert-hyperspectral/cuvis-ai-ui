@@ -90,10 +90,44 @@ var
   SdkDownloaded: Boolean;
   SdkMessageShown: Boolean;
 
-function MachineCuvis: String;
+function ExpandEnvStrings(Src: String; Dst: String; Size: DWORD): DWORD;
+  external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
+
+{ Replaces %Name% (any case) with %Name64%. }
+procedure Use64BitVariable(var S: String; const Name, Name64: String);
+var
+  P: Integer;
 begin
-  if not RegQueryStringValue(HKLM, MachineEnvKey, 'CUVIS', Result) then
-    Result := '';
+  P := Pos('%' + Lowercase(Name) + '%', Lowercase(S));
+  while P > 0 do
+  begin
+    S := Copy(S, 1, P - 1) + '%' + Name64 + '%' + Copy(S, P + Length(Name) + 2, Length(S));
+    P := Pos('%' + Lowercase(Name) + '%', Lowercase(S));
+  end;
+end;
+
+{ CUVIS of the machine environment. A REG_EXPAND_SZ value is expanded the way the 64-bit server sees
+  it: this setup runs as a 32-bit process, where %ProgramFiles% is the x86 folder. An unset variable
+  stays unexpanded, so the library check below fails for it. }
+function MachineCuvis: String;
+var
+  Raw, Buf: String;
+  Size: DWORD;
+begin
+  if not RegQueryStringValue(HKLM, MachineEnvKey, 'CUVIS', Raw) then
+    Raw := '';
+  Result := Raw;
+  if Pos('%', Raw) = 0 then
+    exit;
+  Use64BitVariable(Raw, 'ProgramFiles', 'ProgramW6432');
+  Use64BitVariable(Raw, 'CommonProgramFiles', 'CommonProgramW6432');
+  Size := ExpandEnvStrings(Raw, '', 0);
+  if Size > 0 then
+  begin
+    SetLength(Buf, Size);
+    Size := ExpandEnvStrings(Raw, Buf, Size);
+    Result := Copy(Buf, 1, Size - 1);
+  end;
 end;
 
 { The NSIS-based SDK installer registers in the 32-bit view. }
@@ -125,15 +159,13 @@ begin
   end;
 end;
 
-{ CUVIS is set and its folder holds the SDK library. A value with %VARIABLES% (REG_EXPAND_SZ) counts
-  as present: this 32-bit setup would expand %ProgramFiles% to the x86 folder, not the one 64-bit
-  processes get. }
+{ CUVIS is set and its folder holds the SDK library. }
 function SdkLibraryPresent: Boolean;
 var
   Folder: String;
 begin
   Folder := MachineCuvis;
-  Result := (Folder <> '') and ((Pos('%', Folder) > 0) or FileExists(AddBackslash(Folder) + 'cuvis.dll'));
+  Result := (Folder <> '') and FileExists(AddBackslash(Folder) + 'cuvis.dll');
 end;
 
 { No SDK, one whose library is gone from the CUVIS folder, or one older than the pin. A present SDK
