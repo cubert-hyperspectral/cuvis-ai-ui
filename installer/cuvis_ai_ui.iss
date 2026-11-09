@@ -125,15 +125,21 @@ begin
   end;
 end;
 
-{ No SDK, or one older than the pin. A present SDK of unknown version, or of a newer series, is left
-  alone. }
+{ CUVIS is set and its folder holds the SDK library. }
+function SdkLibraryPresent: Boolean;
+begin
+  Result := (MachineCuvis <> '') and FileExists(AddBackslash(MachineCuvis) + 'cuvis.dll');
+end;
+
+{ No SDK, one whose library is gone from the CUVIS folder, or one older than the pin. A present SDK
+  of unknown version, or of a newer series, is left alone. }
 function SdkNeeded: Boolean;
 var
   Installed, Pin: Int64;
 begin
   if SdkNewerSeries then
     Result := False
-  else if MachineCuvis = '' then
+  else if not SdkLibraryPresent then
     Result := True
   else
     Result := KnownVersion(InstalledSdkVersion, Installed)
@@ -146,8 +152,7 @@ function SdkCurrent: Boolean;
 var
   Installed, Pin: Int64;
 begin
-  Result := (MachineCuvis <> '')
-    and FileExists(AddBackslash(MachineCuvis) + 'cuvis.dll')
+  Result := SdkLibraryPresent
     and KnownVersion(InstalledSdkVersion, Installed)
     and StrToVersion('{#CuvisSdkVersion}', Pin)
     and (ComparePackedVersion(Installed, Pin) >= 0);
@@ -221,16 +226,20 @@ begin
   end;
 end;
 
-{ The SDK installer is NSIS: /S runs it without pages, behind the administrator prompt. Success is
-  read from the registry and the library on disk; on a repair, where both were there before, the
-  installer's exit code must be 0 as well. }
+{ The SDK installer is NSIS: /S runs it without pages, behind the administrator prompt. Success needs
+  exit code 0, the registration at or above the pin and the library on disk. }
 procedure InstallSdk;
 var
   ResultCode, Waited: Integer;
-  Started, WasCurrent, Done: Boolean;
   Installer, Sha: String;
 begin
-  WasCurrent := SdkCurrent;
+  { Another setup may have installed a newer series since the task page; never downgrade it. The end
+    of the install names it. }
+  if SdkNewerSeries then
+  begin
+    Log('Cuvis SDK ' + InstalledSdkVersion + ' was installed while this setup ran; the pinned installer was not run');
+    exit;
+  end;
   Installer := ExpandConstant('{tmp}\{#CuvisSdkAsset}');
   { The file waited in the user's temp folder since its download check; check it again right before
     it runs with administrator rights, so a swapped file is never elevated. }
@@ -245,14 +254,19 @@ begin
     exit;
   end;
   WizardForm.StatusLabel.Caption := 'Installing the Cuvis SDK {#CuvisSdkVersion} (administrator rights required)...';
-  Started := ShellExec('runas', Installer, '/S', '', SW_SHOW, ewWaitUntilTerminated, ResultCode);
-  Log(Format('Cuvis SDK installer: started=%d code=%d current_before=%d', [Ord(Started), ResultCode, Ord(WasCurrent)]));
-  if not Started then
+  if not ShellExec('runas', Installer, '/S', '', SW_SHOW, ewWaitUntilTerminated, ResultCode) then
   begin
+    Log(Format('Cuvis SDK installer not started: code=%d', [ResultCode]));
     if ResultCode = ErrorCancelled then
       OfferSdkPage('Administrator rights were declined, so the Cuvis SDK was not installed.', mbError)
     else
       OfferSdkPage('The Cuvis SDK installer could not be started: ' + SysErrorMessage(ResultCode), mbError);
+    exit;
+  end;
+  Log(Format('Cuvis SDK installer exited with code %d', [ResultCode]));
+  if ResultCode <> 0 then
+  begin
+    OfferSdkPage(Format('The Cuvis SDK installer stopped with exit code %d, so the SDK may be incomplete.', [ResultCode]), mbError);
     exit;
   end;
   Waited := 0;
@@ -261,12 +275,10 @@ begin
     Sleep(500);
     Waited := Waited + 500;
   end;
-  Done := SdkCurrent and ((not WasCurrent) or (ResultCode = 0));
-  if Done then
+  if SdkCurrent then
     Log('Cuvis SDK ' + InstalledSdkVersion + ' installed')
   else
-    OfferSdkPage(Format('The Cuvis SDK installer finished (code %d), ' +
-      'but SDK {#CuvisSdkVersion} is not complete on this machine.', [ResultCode]), mbError);
+    OfferSdkPage('The Cuvis SDK installer finished, but SDK {#CuvisSdkVersion} is not complete on this machine.', mbError);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -283,6 +295,9 @@ begin
         'This installer does not replace it.', mbInformation, MB_OK, IDOK)
     else if MachineCuvis = '' then
       OfferSdkPage('The Cuvis SDK is not installed on this machine.', mbConfirmation)
+    else if not SdkLibraryPresent then
+      OfferSdkPage('The Cuvis SDK on this machine is incomplete: CUVIS points to ' + MachineCuvis +
+        ', which has no cuvis.dll.', mbConfirmation)
     else if SdkNeeded then
       OfferSdkPage('The Cuvis SDK on this machine is older than {#CuvisSdkVersion}.', mbConfirmation);
   end;
