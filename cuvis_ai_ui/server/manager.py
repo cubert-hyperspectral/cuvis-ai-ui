@@ -76,9 +76,64 @@ def _find_server_executable() -> list[str] | None:
     return None
 
 
+_MACHINE_ENV_KEY = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+
+
+def _machine_env_value(name: str) -> str | None:
+    """A variable of the Windows machine environment, read from the registry.
+
+    A process keeps the environment it started with, so a UI started before
+    (or by) the Cuvis SDK installer has no ``CUVIS`` even though the machine has.
+    """
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _MACHINE_ENV_KEY) as key:
+            value, kind = winreg.QueryValueEx(key, name)
+    except OSError:
+        return None
+    if kind == winreg.REG_EXPAND_SZ:
+        value = winreg.ExpandEnvironmentStrings(value)
+    return str(value) or None
+
+
+def _has_sdk_library(folder: str) -> bool:
+    # os.path.isfile answers False on any OSError (an unreadable folder too).
+    return os.path.isfile(os.path.join(folder, "cuvis.dll"))
+
+
+def _with_machine_cuvis(env: dict[str, str]) -> None:
+    """Give the server the machine's ``CUVIS`` when this process has none.
+
+    The cu3s data plugin loads the Cuvis SDK from ``CUVIS``, and the server
+    passes its environment on to each pipeline's environment. A value already
+    set wins (a developer may point it at another SDK build), unless its folder
+    has no SDK library and the machine's folder has one.
+    """
+    machine = _machine_env_value("CUVIS")
+    current = env.get("CUVIS")
+    if not machine or (current and os.path.normcase(current) == os.path.normcase(machine)):
+        return
+    if not current:
+        env["CUVIS"] = machine
+    elif not _has_sdk_library(current) and _has_sdk_library(machine):
+        logger.warning(
+            f"CUVIS is {current} in this process, which has no cuvis.dll; "
+            f"the server uses the machine value {machine}"
+        )
+        env["CUVIS"] = machine
+    else:
+        logger.warning(
+            f"CUVIS is {current} in this process but {machine} in the machine environment; "
+            "the server uses this process's value"
+        )
+
+
 def _server_env(port: int) -> dict[str, str]:
     """Environment for the server; a frozen build puts its bundled tools on PATH."""
     env = {**os.environ, "GRPC_PORT": str(port), "LOG_FORMAT": "text"}
+    if sys.platform == "win32":
+        _with_machine_cuvis(env)
     if getattr(sys, "frozen", False):
         app_dir = Path(sys.executable).parent
         tools = [app_dir / name / "bin" for name in ("ffmpeg", "graphviz")]

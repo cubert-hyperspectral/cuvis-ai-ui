@@ -22,5 +22,10 @@ def stamp_module():
 
 
 @pytest.fixture
+def update_module():
+    return load_installer_module("update_cuvis_sdk")
+
+
+@pytest.fixture
 def launcher_module():
     return load_installer_module("server_launcher")
